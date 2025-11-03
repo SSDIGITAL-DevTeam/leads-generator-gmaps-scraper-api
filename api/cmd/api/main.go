@@ -20,6 +20,7 @@ import (
 	"github.com/octobees/leads-generator/api/internal/handler"
 	middlewarepkg "github.com/octobees/leads-generator/api/internal/middleware"
 	"github.com/octobees/leads-generator/api/internal/repository"
+	"github.com/octobees/leads-generator/api/internal/router"
 	"github.com/octobees/leads-generator/api/internal/service"
 )
 
@@ -44,9 +45,11 @@ func main() {
 	companiesRepo := repository.NewPGXCompaniesRepository(pool)
 
 	authService := service.NewAuthService(usersRepo, jwtManager)
+	userService := service.NewUserService(usersRepo)
 	companiesService := service.NewCompaniesService(companiesRepo)
 
 	authHandler := handler.NewAuthHandler(authService)
+	userAdminHandler := handler.NewUserAdminHandler(userService)
 	companiesHandler := handler.NewCompaniesHandler(companiesService)
 	adminUploadHandler := handler.NewAdminUploadHandler(companiesService)
 	httpClient := &http.Client{Timeout: 15 * time.Second}
@@ -60,21 +63,13 @@ func main() {
 	e.Use(middlewarepkg.Logging())
 	e.Use(echoMiddleware.Recover())
 
-	e.GET("/healthz", func(c echo.Context) error {
-		return handler.Success(c, http.StatusOK, "service healthy", map[string]any{"status": "ok"})
+	router.Register(e, cfg, jwtManager, router.Handlers{
+		Auth:        authHandler,
+		Users:       userAdminHandler,
+		Companies:   companiesHandler,
+		AdminUpload: adminUploadHandler,
+		Scrape:      scrapeHandler,
 	})
-
-	e.POST("/auth/login", authHandler.Login)
-	e.GET("/companies", companiesHandler.List)
-
-	secured := e.Group("")
-	secured.Use(middlewarepkg.JWT(jwtManager))
-
-	admin := secured.Group("/admin", middlewarepkg.RequireRole("admin"))
-	admin.GET("/companies", companiesHandler.ListAdmin)
-	admin.POST("/upload-csv", adminUploadHandler.UploadCSV)
-
-	secured.POST("/scrape", scrapeHandler.Enqueue, middlewarepkg.ScrapeRateLimiter(cfg.RateLimitScrape))
 
 	serverErr := make(chan error, 1)
 	go func() {

@@ -41,33 +41,61 @@ Backend-oriented monorepo that orchestrates a Go API, a Python worker, and Postg
 ## cURL Recipes
 > Tip: install [`jq`](https://stedolan.github.io/jq/) to parse responses easily.
 
-1. **Authenticate and store token**
+1. **Register (optional)**
+   ```bash
+   curl -X POST "http://localhost:8080/auth/register" \
+     -H 'Content-Type: application/json' \
+     -d '{"email":"user@example.com","password":"secretpass"}'
+   ```
+2. **Authenticate and store token**
    ```bash
    TOKEN=$(curl -s -X POST "http://localhost:8080/auth/login" \
      -H 'Content-Type: application/json' \
      -d '{"email":"admin@example.com","password":"secretpass"}' \
      | jq -r '.data.access_token')
    ```
-2. **Upload admin CSV**
+3. **Upload admin CSV**
    ```bash
    curl -X POST "http://localhost:8080/admin/upload-csv" \
      -H "Authorization: Bearer ${TOKEN}" \
      -F "file=@db/seeds/companies.sample.csv"
    ```
-3. **Trigger a scrape job**
+4. **Trigger a scrape job**
    ```bash
    curl -X POST "http://localhost:8080/scrape" \
      -H 'Content-Type: application/json' \
      -H "Authorization: Bearer ${TOKEN}" \
      -d '{"type_business":"coffee shop","city":"Jakarta","country":"Indonesia","min_rating":4}'
    ```
-4. **List companies (public)**
+5. **List companies (public)**
    ```bash
    curl "http://localhost:8080/companies?city=Jakarta&min_rating=4"
    ```
-5. **List companies (admin lens)**
+6. **List companies (admin lens)**
    ```bash
    curl "http://localhost:8080/admin/companies?country=Indonesia" \
+     -H "Authorization: Bearer ${TOKEN}"
+   ```
+7. **Admin user management**
+   ```bash
+   # Create
+   curl -X POST "http://localhost:8080/admin/users" \
+     -H "Authorization: Bearer ${TOKEN}" \
+     -H 'Content-Type: application/json' \
+     -d '{"email":"staff@example.com","password":"changeme","role":"user"}'
+
+   # List
+   curl "http://localhost:8080/admin/users" \
+     -H "Authorization: Bearer ${TOKEN}"
+
+   # Update
+   curl -X PATCH "http://localhost:8080/admin/users/<user-id>" \
+     -H "Authorization: Bearer ${TOKEN}" \
+     -H 'Content-Type: application/json' \
+     -d '{"role":"admin"}'
+
+   # Delete
+   curl -X DELETE "http://localhost:8080/admin/users/<user-id>" \
      -H "Authorization: Bearer ${TOKEN}"
    ```
 
