@@ -1,0 +1,52 @@
+name: leads-generator
+
+services:
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: places
+    ports:
+      - "5432:5432"
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U app -d places" ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  api:
+    build:
+      context: ../../api
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set env}
+      JWT_SECRET: ${JWT_SECRET:-supersecret}
+      RATE_LIMIT_SCRAPE: ${RATE_LIMIT_SCRAPE:-5/min}
+      WORKER_BASE_URL: http://worker:9000
+      PORT: "8080"
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:?set env}
+    ports:
+      - "8888:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      worker:
+        condition: service_started
+
+  worker:
+    build:
+      context: ../../worker
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set env}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:?set env}
+      WORKER_PORT: "9000"
+    ports:
+      - "9001:9000"
+
+volumes:
+  dbdata:

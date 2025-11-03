@@ -1,0 +1,7 @@
+# Core dependencies for the worker runtime.
+requests
+python-dotenv
+psycopg2-binary
+flask
+googlemaps
+geopy

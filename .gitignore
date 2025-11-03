@@ -1,0 +1,56 @@
+# Editors & OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.tmp
+*.log
+.idea/
+.vscode/
+*.code-workspace
+
+# Environment & local config
+.env
+api/.env
+worker/.env
+configs/dev.env
+configs/prod.env
+configs/.env.local
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.envrc
+
+# Go
+bin/
+*.test
+
+# Build artifacts
+/dist/
+/build/
+/coverage/
+/**/*.coverage
+
+# Docker
+**/tmp/
+
+# Logs & dumps
+*.log
+*.out
+*.bak
+*.old
+*.orig
+backup_*.sql
+
+# Node (in case tooling gets added)
+node_modules/
+yarn.lock
+package-lock.json
+
+# Compiled worker cache
+worker/.mypy_cache/

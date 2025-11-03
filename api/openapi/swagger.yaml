@@ -1,0 +1,431 @@
+openapi: 3.0.3
+info:
+  title: Leads Generator API
+  version: 0.1.0
+  description: |
+    Internal API for authentication, company catalogue access, administrative ingestion, and scrape orchestration.
+servers:
+  - url: http://localhost:8080
+paths:
+  /auth/login:
+    post:
+      summary: Authenticate user
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: admin@example.com
+              password: secretpass
+      responses:
+        '200':
+          description: Authenticated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginSuccess'
+              example:
+                status: success
+                message: login successful
+                data:
+                  access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        '400':
+          description: Invalid payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /companies:
+    get:
+      summary: List companies
+      tags: [Companies]
+      parameters:
+        - $ref: '#/components/parameters/Q'
+        - $ref: '#/components/parameters/TypeBusiness'
+        - $ref: '#/components/parameters/City'
+        - $ref: '#/components/parameters/Country'
+        - $ref: '#/components/parameters/MinRating'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200':
+          description: List of companies
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompaniesSuccess'
+              example:
+                status: success
+                message: companies retrieved
+                data:
+                  - id: 40f3c366-8d15-4a13-9fc3-3b2f70efa001
+                    company: Sample Coffee
+                    city: Jakarta
+                    country: Indonesia
+                    rating: 4.5
+                    reviews: 128
+        '400':
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/companies:
+    get:
+      summary: Admin list companies
+      security:
+        - BearerAuth: []
+      tags: [Companies]
+      parameters:
+        - $ref: '#/components/parameters/Q'
+        - $ref: '#/components/parameters/TypeBusiness'
+        - $ref: '#/components/parameters/City'
+        - $ref: '#/components/parameters/Country'
+        - $ref: '#/components/parameters/MinRating'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200':
+          description: List of companies for admins
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompaniesSuccess'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/upload-csv:
+    post:
+      summary: Upload companies CSV
+      security:
+        - BearerAuth: []
+      tags: [Companies]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Upload processed summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSummarySuccess'
+              example:
+                status: success
+                message: companies CSV processed
+                data:
+                  inserted: 5
+                  updated: 2
+                  total: 7
+        '400':
+          description: Invalid file format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /scrape:
+    post:
+      summary: Enqueue scraping job
+      security:
+        - BearerAuth: []
+      tags: [Scrape]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScrapeRequest'
+            example:
+              type_business: coffee shop
+              city: Jakarta
+              country: Indonesia
+              min_rating: 4
+      responses:
+        '200':
+          description: Scrape job accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScrapeQueuedSuccess'
+              example:
+                status: success
+                message: scrape job queued
+                data:
+                  status: queued
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /healthz:
+    get:
+      summary: Health check
+      tags: [Health]
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthSuccess'
+              example:
+                status: success
+                message: service healthy
+                data:
+                  status: ok
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Q:
+      name: q
+      in: query
+      schema:
+        type: string
+      description: Fuzzy search on company name or address
+    TypeBusiness:
+      name: type_business
+      in: query
+      schema:
+        type: string
+      description: Business category to filter on
+    City:
+      name: city
+      in: query
+      schema:
+        type: string
+    Country:
+      name: country
+      in: query
+      schema:
+        type: string
+    MinRating:
+      name: min_rating
+      in: query
+      schema:
+        type: number
+        format: float
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+      description: 1-based page number
+    PerPage:
+      name: per_page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+      description: Page size (max 100)
+  schemas:
+    ResponseEnvelope:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [success, error]
+        message:
+          type: string
+        data:
+          nullable: true
+          description: Endpoint-specific payload
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+    LoginResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: Bearer token
+    Company:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        place_id:
+          type: string
+        company:
+          type: string
+        phone:
+          type: string
+        website:
+          type: string
+          format: uri
+        rating:
+          type: number
+          format: float
+        reviews:
+          type: integer
+        type_business:
+          type: string
+        address:
+          type: string
+        city:
+          type: string
+        country:
+          type: string
+        longitude:
+          type: number
+          format: float
+        latitude:
+          type: number
+          format: float
+        raw:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ScrapeRequest:
+      type: object
+      required: [type_business, city, country]
+      properties:
+        type_business:
+          type: string
+        city:
+          type: string
+        country:
+          type: string
+        location:
+          type: string
+          description: Optional human-readable location
+        min_rating:
+          type: number
+          format: float
+    UploadSummary:
+      type: object
+      properties:
+        inserted:
+          type: integer
+        updated:
+          type: integer
+        total:
+          type: integer
+    QueuedResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: queued
+    ErrorResponse:
+      allOf:
+        - $ref: '#/components/schemas/ResponseEnvelope'
+      example:
+        status: error
+        message: invalid credentials
+    LoginSuccess:
+      allOf:
+        - $ref: '#/components/schemas/ResponseEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/LoginResponse'
+    CompaniesSuccess:
+      allOf:
+        - $ref: '#/components/schemas/ResponseEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Company'
+    UploadSummarySuccess:
+      allOf:
+        - $ref: '#/components/schemas/ResponseEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/UploadSummary'
+    ScrapeQueuedSuccess:
+      allOf:
+        - $ref: '#/components/schemas/ResponseEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/QueuedResponse'
+    HealthSuccess:
+      allOf:
+        - $ref: '#/components/schemas/ResponseEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                status:
+                  type: string
+                  example: ok
