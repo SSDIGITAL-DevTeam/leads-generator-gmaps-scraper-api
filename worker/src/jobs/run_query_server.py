@@ -16,6 +16,12 @@ app = Flask(__name__)
 _executor = ThreadPoolExecutor(max_workers=4)
 
 
+@app.route("/healthz", methods=["GET"])
+def healthcheck() -> Any:
+    settings = get_settings()
+    return jsonify({"status": "ok", "worker_port": settings.worker_port})
+
+
 @app.route("/scrape", methods=["POST"])
 def enqueue_scrape() -> Any:
     payload: Dict[str, Any] = request.get_json(silent=True) or {}
