@@ -32,7 +32,7 @@ type UsersRepository interface {
 
 // PGXUsersRepository implements UsersRepository with pgx.
 type PGXUsersRepository struct {
-	pool *pgxpool.Pool
+	pool pgxPool
 }
 
 // NewPGXUsersRepository instantiates a users repository.

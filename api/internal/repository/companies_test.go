@@ -1,0 +1,136 @@
+package repository
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+)
+
+type stubCompanyRows struct {
+	called bool
+}
+
+func (s *stubCompanyRows) Close()                                       {}
+func (s *stubCompanyRows) Err() error                                   { return nil }
+func (s *stubCompanyRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (s *stubCompanyRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (s *stubCompanyRows) Next() bool {
+	if s.called {
+		return false
+	}
+	s.called = true
+	return true
+}
+
+func (s *stubCompanyRows) Scan(dest ...any) error {
+	if !s.called {
+		return errors.New("scan called before next")
+	}
+	id := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	created := time.Now()
+	updated := created
+	placeID := sql.NullString{String: "place-123", Valid: true}
+	phone := sql.NullString{String: "+123456", Valid: true}
+	website := sql.NullString{String: "https://example.com", Valid: true}
+	rating := sql.NullFloat64{Float64: 4.5, Valid: true}
+	reviews := sql.NullInt64{Int64: 100, Valid: true}
+	typeBusiness := sql.NullString{String: "store", Valid: true}
+	address := sql.NullString{String: "Main St", Valid: true}
+	city := sql.NullString{String: "Gotham", Valid: true}
+	country := sql.NullString{String: "USA", Valid: true}
+	lng := sql.NullFloat64{Float64: 10.0, Valid: true}
+	lat := sql.NullFloat64{Float64: 20.0, Valid: true}
+	raw := []byte(`{"foo":"bar"}`)
+
+	*dest[0].(*uuid.UUID) = id
+	*dest[1].(*sql.NullString) = placeID
+	*dest[2].(*string) = "Acme"
+	*dest[3].(*sql.NullString) = phone
+	*dest[4].(*sql.NullString) = website
+	*dest[5].(*sql.NullFloat64) = rating
+	*dest[6].(*sql.NullInt64) = reviews
+	*dest[7].(*sql.NullString) = typeBusiness
+	*dest[8].(*sql.NullString) = address
+	*dest[9].(*sql.NullString) = city
+	*dest[10].(*sql.NullString) = country
+	*dest[11].(*sql.NullFloat64) = lng
+	*dest[12].(*sql.NullFloat64) = lat
+	*dest[13].(*[]byte) = raw
+	*dest[14].(*time.Time) = created
+	*dest[15].(*time.Time) = updated
+	return nil
+}
+
+func (s *stubCompanyRows) Values() ([]any, error) { return nil, nil }
+func (s *stubCompanyRows) RawValues() [][]byte    { return nil }
+func (s *stubCompanyRows) Conn() *pgx.Conn        { return nil }
+
+func TestPGXCompaniesRepository_UpsertValidation(t *testing.T) {
+	repo := &PGXCompaniesRepository{}
+	if err := repo.Upsert(context.Background(), nil); err == nil {
+		t.Fatalf("expected error for nil company")
+	}
+}
+
+func TestPGXCompaniesRepository_BulkUpsertEmpty(t *testing.T) {
+	repo := &PGXCompaniesRepository{}
+	res, err := repo.BulkUpsertCompanies(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Total != 0 {
+		t.Fatalf("expected zero summary, got %+v", res)
+	}
+}
+
+func TestScanCompanies(t *testing.T) {
+	rows, err := scanCompanies(&stubCompanyRows{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 company, got %d", len(rows))
+	}
+	company := rows[0]
+	if company.Company != "Acme" || company.PlaceID == nil || *company.PlaceID != "place-123" {
+		t.Fatalf("unexpected company: %+v", company)
+	}
+	if company.Longitude == nil || *company.Longitude != 10.0 {
+		t.Fatalf("expected longitude to be set")
+	}
+	if company.Raw == nil || string(company.Raw) != "{\"foo\":\"bar\"}" {
+		t.Fatalf("unexpected raw payload: %s", string(company.Raw))
+	}
+}
+
+func TestHelperConversions(t *testing.T) {
+	if stringOrNil(nil) != nil {
+		t.Fatalf("expected nil when pointer nil")
+	}
+	value := "hello"
+	if stringOrNil(&value) != "hello" {
+		t.Fatalf("expected string value")
+	}
+
+	if floatOrNil(nil) != nil {
+		t.Fatalf("expected nil for nil float pointer")
+	}
+	f := 3.14
+	if floatOrNil(&f) != f {
+		t.Fatalf("expected float value")
+	}
+
+	if intOrNil(nil) != nil {
+		t.Fatalf("expected nil for nil int pointer")
+	}
+	i := 42
+	if intOrNil(&i) != i {
+		t.Fatalf("expected int value")
+	}
+}

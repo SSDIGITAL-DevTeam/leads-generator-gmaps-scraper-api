@@ -43,13 +43,15 @@ type BulkUpsertResult struct {
 
 // PGXCompaniesRepository implements CompaniesRepository using pgx.
 type PGXCompaniesRepository struct {
-	pool *pgxpool.Pool
+	pool pgxPool
 }
 
 // NewPGXCompaniesRepository wires a pgx backed repository.
 func NewPGXCompaniesRepository(pool *pgxpool.Pool) *PGXCompaniesRepository {
 	return &PGXCompaniesRepository{pool: pool}
 }
+
+var _ pgxPool = (*pgxpool.Pool)(nil)
 
 // Upsert inserts or updates a company keyed by place_id.
 func (r *PGXCompaniesRepository) Upsert(ctx context.Context, company *entity.Company) error {

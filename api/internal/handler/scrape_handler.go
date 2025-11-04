@@ -121,15 +121,19 @@ func (h *ScrapeHandler) Enqueue(c echo.Context) error {
 }
 
 func extractWorkerError(body io.Reader) string {
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return "worker returned an error"
+	}
+	if len(data) == 0 {
+		return "worker returned an error"
+	}
+
 	var payload struct {
 		Error string `json:"error"`
 	}
-	if err := json.NewDecoder(body).Decode(&payload); err == nil && payload.Error != "" {
+	if err := json.Unmarshal(data, &payload); err == nil && payload.Error != "" {
 		return payload.Error
 	}
-	data, err := io.ReadAll(body)
-	if err == nil && len(data) > 0 {
-		return string(data)
-	}
-	return "worker returned an error"
+	return string(data)
 }
