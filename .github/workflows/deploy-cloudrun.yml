@@ -1,0 +1,117 @@
+name: Deploy to Google Cloud Run
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'api/**'
+      - 'worker/**'
+      - '.github/workflows/deploy-cloudrun.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_REGION }}
+  # Host + repo GAR; kamu sudah simpan penuh sebagai GAR_REPO:
+  # contoh: asia-southeast2-docker.pkg.dev/linkedin-scraper-474706/leads
+  GAR_REPO: ${{ vars.GAR_REPO }}
+
+  # Sesuaikan nama service Cloud Run kamu
+  API_SERVICE: leads-api
+  WORKER_SERVICE: leads-worker
+
+  API_IMAGE_NAME: api
+  WORKER_IMAGE_NAME: worker
+
+  API_DOCKERFILE: api/Dockerfile
+  WORKER_DOCKERFILE: worker/Dockerfile
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # OIDC login (tanpa JSON key)
+      - name: Auth to Google Cloud (OIDC)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Docker auth to Artifact Registry
+        run: |
+          # ambil prefix host dari GAR_REPO, misal: asia-southeast2-docker.pkg.dev
+          HOST="$(echo '${{ env.GAR_REPO }}' | cut -d/ -f1)"
+          gcloud auth configure-docker "$HOST" --quiet
+
+      - name: Compute image names
+        id: images
+        run: |
+          GIT_SHA="$(git rev-parse --short HEAD)"
+          API_IMAGE="${{ env.GAR_REPO }}/${{ env.API_IMAGE_NAME }}:${GIT_SHA}"
+          WORKER_IMAGE="${{ env.GAR_REPO }}/${{ env.WORKER_IMAGE_NAME }}:${GIT_SHA}"
+          echo "api_image=${API_IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "worker_image=${WORKER_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Build API image
+        run: |
+          docker build \
+            --file "${{ env.API_DOCKERFILE }}" \
+            --tag "${{ steps.images.outputs.api_image }}" \
+            api
+
+      - name: Push API image
+        run: docker push "${{ steps.images.outputs.api_image }}"
+
+      - name: Build Worker image
+        run: |
+          docker build \
+            --file "${{ env.WORKER_DOCKERFILE }}" \
+            --tag "${{ steps.images.outputs.worker_image }}" \
+            worker
+
+      - name: Push Worker image
+        run: docker push "${{ steps.images.outputs.worker_image }}"
+
+      - name: Deploy API to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.API_SERVICE }}
+          region: ${{ env.REGION }}
+          image: ${{ steps.images.outputs.api_image }}
+          project_id: ${{ env.PROJECT_ID }}
+          allow_unauthenticated: true
+          # uncomment kalau mau set ENV dari GitHub Secrets:
+          # flags: >
+          #   --set-env-vars=DATABASE_URL=${{ secrets.DATABASE_URL }},
+          #   JWT_SECRET=${{ secrets.JWT_SECRET }},
+          #   GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }},
+          #   WORKER_BASE_URL=https://<worker-url>
+
+      - name: Deploy Worker to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.WORKER_SERVICE }}
+          region: ${{ env.REGION }}
+          image: ${{ steps.images.outputs.worker_image }}
+          project_id: ${{ env.PROJECT_ID }}
+          allow_unauthenticated: false
+
+      - name: Show URLs
+        run: |
+          API_URL="$(gcloud run services describe '${{ env.API_SERVICE }}' --region '${{ env.REGION }}' --format='value(status.url)')"
+          WORKER_URL="$(gcloud run services describe '${{ env.WORKER_SERVICE }}' --region '${{ env.REGION }}' --format='value(status.url)')"
+          echo "API URL: ${API_URL}"
+          echo "WORKER URL: ${WORKER_URL}"
