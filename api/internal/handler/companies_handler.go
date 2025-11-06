@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 
@@ -23,20 +24,21 @@ func NewCompaniesHandler(service *service.CompaniesService) *CompaniesHandler {
 
 // List handles GET /companies requests.
 func (h *CompaniesHandler) List(c echo.Context) error {
-	return h.listInternal(c)
+	return h.listInternal(c, true)
 }
 
 // ListAdmin handles GET /admin/companies requests.
 func (h *CompaniesHandler) ListAdmin(c echo.Context) error {
-	return h.listInternal(c)
+	return h.listInternal(c, false)
 }
 
-func (h *CompaniesHandler) listInternal(c echo.Context) error {
+func (h *CompaniesHandler) listInternal(c echo.Context, latestOnly bool) error {
 	filter := dto.ListFilter{
 		Q:            strings.TrimSpace(c.QueryParam("q")),
 		TypeBusiness: strings.TrimSpace(c.QueryParam("type_business")),
 		City:         strings.TrimSpace(c.QueryParam("city")),
 		Country:      strings.TrimSpace(c.QueryParam("country")),
+		Sort:         strings.TrimSpace(c.QueryParam("sort")),
 		Page:         parseIntDefault(c.QueryParam("page"), 1),
 		PerPage:      parseIntDefault(c.QueryParam("per_page"), 20),
 	}
@@ -45,6 +47,21 @@ func (h *CompaniesHandler) listInternal(c echo.Context) error {
 		if minRating, err := strconv.ParseFloat(minRatingStr, 64); err == nil {
 			filter.MinRating = &minRating
 		}
+	}
+
+	if latestOnly {
+		filter.LatestRunOnly = true
+		if filter.Sort == "" {
+			filter.Sort = "recent"
+		}
+	}
+
+	if updatedSinceStr := strings.TrimSpace(c.QueryParam("updated_since")); updatedSinceStr != "" {
+		parsed, err := time.Parse(time.RFC3339, updatedSinceStr)
+		if err != nil {
+			return Error(c, http.StatusBadRequest, "invalid updated_since (use RFC3339)")
+		}
+		filter.UpdatedSince = &parsed
 	}
 
 	companies, err := h.service.ListCompanies(c.Request().Context(), filter)

@@ -252,13 +252,39 @@ func (r *PGXCompaniesRepository) List(ctx context.Context, filter dto.ListFilter
 		args = append(args, *filter.MinRating)
 		idx++
 	}
+	if filter.LatestRunOnly && filter.UpdatedSince == nil {
+		latestQuery := "SELECT MAX(updated_at) FROM companies"
+		if len(clauses) > 0 {
+			latestQuery += " WHERE " + strings.Join(clauses, " AND ")
+		}
+		var latest sql.NullTime
+		if err := r.pool.QueryRow(ctx, latestQuery, args...).Scan(&latest); err != nil {
+			return nil, fmt.Errorf("determine latest scrape window: %w", err)
+		}
+		if latest.Valid {
+			ts := latest.Time
+			filter.UpdatedSince = &ts
+		} else {
+			filter.LatestRunOnly = false
+		}
+	}
+	if filter.UpdatedSince != nil {
+		clauses = append(clauses, fmt.Sprintf("updated_at >= $%d", idx))
+		args = append(args, *filter.UpdatedSince)
+		idx++
+	}
 
 	if len(clauses) > 0 {
 		baseQuery.WriteString(" WHERE ")
 		baseQuery.WriteString(strings.Join(clauses, " AND "))
 	}
 
-	baseQuery.WriteString(" ORDER BY rating DESC NULLS LAST, reviews DESC NULLS LAST, company ASC")
+	orderClause := "rating DESC NULLS LAST, reviews DESC NULLS LAST, company ASC"
+	if strings.EqualFold(filter.Sort, "recent") || (filter.Sort == "" && filter.LatestRunOnly) {
+		orderClause = "updated_at DESC, rating DESC NULLS LAST, company ASC"
+	}
+	baseQuery.WriteString(" ORDER BY ")
+	baseQuery.WriteString(orderClause)
 
 	page := filter.Page
 	if page <= 0 {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v4"
 
@@ -64,6 +65,12 @@ func TestCompaniesHandler_List_Success(t *testing.T) {
 	if repo.lastFilter.MinRating == nil || *repo.lastFilter.MinRating != 4.5 {
 		t.Fatalf("expected min_rating parsed, got %v", repo.lastFilter.MinRating)
 	}
+	if !repo.lastFilter.LatestRunOnly {
+		t.Fatalf("expected latest run filter enabled")
+	}
+	if repo.lastFilter.Sort != "recent" {
+		t.Fatalf("expected default sort recent, got %q", repo.lastFilter.Sort)
+	}
 
 	var payload APIResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
@@ -71,6 +78,51 @@ func TestCompaniesHandler_List_Success(t *testing.T) {
 	}
 	if payload.Status != "success" {
 		t.Fatalf("unexpected payload: %+v", payload)
+	}
+}
+
+func TestCompaniesHandler_List_WithUpdatedSinceAndSort(t *testing.T) {
+	repo := &capturingCompaniesRepo{}
+	handler := newCompaniesHandler(repo)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/companies?updated_since=2025-01-01T00:00:00Z&sort=recent", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := handler.List(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if repo.lastFilter.UpdatedSince == nil {
+		t.Fatalf("expected updated_since parsed")
+	}
+	if repo.lastFilter.Sort != "recent" {
+		t.Fatalf("expected sort propagated, got %q", repo.lastFilter.Sort)
+	}
+	expected := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	if !repo.lastFilter.UpdatedSince.Equal(expected) {
+		t.Fatalf("expected updated_since %v, got %v", expected, repo.lastFilter.UpdatedSince)
+	}
+	if !repo.lastFilter.LatestRunOnly {
+		t.Fatalf("expected latest run filter enabled")
+	}
+}
+
+func TestCompaniesHandler_List_InvalidUpdatedSince(t *testing.T) {
+	repo := &capturingCompaniesRepo{}
+	handler := newCompaniesHandler(repo)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/companies?updated_since=bad", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := handler.List(c)
+	if err != nil {
+		t.Fatalf("handler should return response without error object, got %v", err)
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
 	}
 }
 
@@ -86,6 +138,26 @@ func TestCompaniesHandler_List_Error(t *testing.T) {
 	_ = handler.List(c)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", rec.Code)
+	}
+}
+
+func TestCompaniesHandler_ListAdmin_AllData(t *testing.T) {
+	repo := &capturingCompaniesRepo{}
+	handler := newCompaniesHandler(repo)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/admin/companies", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := handler.ListAdmin(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if repo.lastFilter.LatestRunOnly {
+		t.Fatalf("expected admin listing to include all data")
+	}
+	if repo.lastFilter.Sort != "" {
+		t.Fatalf("expected sort untouched for admin, got %q", repo.lastFilter.Sort)
 	}
 }
 
