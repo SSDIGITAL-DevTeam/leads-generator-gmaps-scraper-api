@@ -7,6 +7,7 @@ on:
       - 'api/**'
       - 'worker/**'
       - 'migrate/**'
+      - 'db/migrations/**'
       - '.github/workflows/deploy-cloudrun.yml'
   workflow_dispatch:
 
@@ -19,21 +20,20 @@ permissions:
   contents: read
 
 env:
-  # ===== GCP & GAR (gunakan Repository Variables) =====
+  # ===== GCP & GAR (pakai Repository Variables) =====
   PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
   REGION: ${{ vars.GCP_REGION }}
-  # Contoh: asia-southeast2-docker.pkg.dev/linkedin-scraper-474706/leads
+  # contoh: asia-southeast2-docker.pkg.dev/linkedin-scraper-474706/leads
   GAR_REPO: ${{ vars.GAR_REPO }}
 
   # ===== Cloud Run services & job =====
   API_SERVICE: leads-api
   WORKER_SERVICE: leads-worker
   MIGRATE_JOB_NAME: db-migrate
-  # SA runtime untuk job migrasi (sudah kamu buat & beri secretAccessor)
+  # SA runtime khusus job migrasi (sudah dibuat & diberi secretAccessor)
   MIGRATE_JOB_SA: leads-job-sa@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
-  # Jika ingin pakai run-deployer@..., ganti di atas.
 
-  # ===== Image names (dalam satu repo GAR) =====
+  # ===== Image names =====
   API_IMAGE_NAME: api
   WORKER_IMAGE_NAME: worker
   MIGRATE_IMAGE_NAME: migrate
@@ -70,6 +70,9 @@ jobs:
           HOST="$(echo '${{ env.GAR_REPO }}' | cut -d/ -f1)"
           gcloud auth configure-docker "$HOST" --quiet
 
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       # ---- Hitung tag image berdasarkan short SHA ----
       - name: Compute image names
         id: images
@@ -81,47 +84,51 @@ jobs:
           echo "worker_image=${{ env.GAR_REPO }}/${{ env.WORKER_IMAGE_NAME }}:${GIT_SHA}" >> "$GITHUB_OUTPUT"
           echo "migrate_image=${{ env.GAR_REPO }}/${{ env.MIGRATE_IMAGE_NAME }}:${GIT_SHA}" >> "$GITHUB_OUTPUT"
 
-      # ---- Build & push images (migrate, api, worker) ----
-      - name: Build & push migrate image
-        run: |
-          set -euo pipefail
-          docker build \
-            --file "${{ env.MIGRATE_DOCKERFILE }}" \
-            --tag "${{ steps.images.outputs.migrate_image }}" \
-            .
-          docker push "${{ steps.images.outputs.migrate_image }}"
+      # ---- Build & push (with registry cache) ----
+      - name: Build & Push API (with cache)
+        uses: docker/build-push-action@v5
+        with:
+          context: api
+          file: ${{ env.API_DOCKERFILE }}
+          push: true
+          tags: |
+            ${{ steps.images.outputs.api_image }}
+            ${{ env.GAR_REPO }}/${{ env.API_IMAGE_NAME }}:latest
+          cache-from: type=registry,ref=${{ env.GAR_REPO }}/${{ env.API_IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.GAR_REPO }}/${{ env.API_IMAGE_NAME }}:buildcache,mode=max
+          provenance: false
 
-      - name: Build API image
-        run: |
-          set -euo pipefail
-          docker build \
-            --file "${{ env.API_DOCKERFILE }}" \
-            --tag "${{ steps.images.outputs.api_image }}" \
-            api
+      - name: Build & Push Worker (with cache)
+        uses: docker/build-push-action@v5
+        with:
+          context: worker
+          file: ${{ env.WORKER_DOCKERFILE }}
+          push: true
+          tags: |
+            ${{ steps.images.outputs.worker_image }}
+            ${{ env.GAR_REPO }}/${{ env.WORKER_IMAGE_NAME }}:latest
+          cache-from: type=registry,ref=${{ env.GAR_REPO }}/${{ env.WORKER_IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.GAR_REPO }}/${{ env.WORKER_IMAGE_NAME }}:buildcache,mode=max
+          provenance: false
 
-      - name: Push API image
-        run: |
-          set -euo pipefail
-          docker push "${{ steps.images.outputs.api_image }}"
+      - name: Build & Push Migrate (with cache)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ env.MIGRATE_DOCKERFILE }}
+          push: true
+          tags: |
+            ${{ steps.images.outputs.migrate_image }}
+            ${{ env.GAR_REPO }}/${{ env.MIGRATE_IMAGE_NAME }}:latest
+          cache-from: type=registry,ref=${{ env.GAR_REPO }}/${{ env.MIGRATE_IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.GAR_REPO }}/${{ env.MIGRATE_IMAGE_NAME }}:buildcache,mode=max
+          provenance: false
 
-      - name: Build Worker image
-        run: |
-          set -euo pipefail
-          docker build \
-            --file "${{ env.WORKER_DOCKERFILE }}" \
-            --tag "${{ steps.images.outputs.worker_image }}" \
-            worker
-
-      - name: Push Worker image
-        run: |
-          set -euo pipefail
-          docker push "${{ steps.images.outputs.worker_image }}"
-
-      # ---- Deploy Cloud Run Job untuk migrasi (pakai Secret Manager) ----
+      # ---- Deploy Cloud Run Job (migrasi) ----
       - name: Deploy Cloud Run job (migration)
         run: |
           set -euo pipefail
-          # Pastikan Secret Manager memiliki secret "DATABASE_URL" & SA job punya roles/secretmanager.secretAccessor
+          # Secret "DATABASE_URL" harus ada di Secret Manager project ini
           gcloud run jobs deploy "${{ env.MIGRATE_JOB_NAME }}" \
             --image "${{ steps.images.outputs.migrate_image }}" \
             --region "${{ env.REGION }}" \
@@ -130,10 +137,9 @@ jobs:
             --max-retries=1 \
             --task-timeout=900s \
             --set-secrets=DATABASE_URL=DATABASE_URL:latest
-            # Jika DB via Private IP (Cloud SQL) + VPC:
+            # Jika DB via Private IP (Cloud SQL) + VPC connector:
             # --vpc-connector=<NAMA_CONNECTOR> --egress-settings=all-traffic
 
-      # ---- Eksekusi job migrasi & blok deploy kalau gagal ----
       - name: Run migration job (blocks deploy on failure)
         run: |
           set -euo pipefail
@@ -151,11 +157,6 @@ jobs:
           image: ${{ steps.images.outputs.api_image }}
           project_id: ${{ env.PROJECT_ID }}
           allow_unauthenticated: true
-          # Jika ingin set ENV dari Secrets Actions (tidak disarankan bila sudah di-set di Cloud Run / Secret Manager):
-          # flags: >
-          #   --set-env-vars=JWT_SECRET=${{ secrets.JWT_SECRET }},
-          #   GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }},
-          #   WORKER_BASE_URL=https://<worker-url>
 
       # ---- Deploy Worker (private) ----
       - name: Deploy Worker to Cloud Run
@@ -167,7 +168,6 @@ jobs:
           project_id: ${{ env.PROJECT_ID }}
           allow_unauthenticated: false
 
-      # ---- Tampilkan URL Service ----
       - name: Show URLs
         run: |
           set -euo pipefail

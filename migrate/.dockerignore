@@ -1,0 +1,6 @@
+.git
+.github
+api
+worker
+node_modules
+**/__pycache__
