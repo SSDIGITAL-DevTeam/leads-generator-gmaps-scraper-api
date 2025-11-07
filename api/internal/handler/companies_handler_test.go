@@ -141,6 +141,41 @@ func TestCompaniesHandler_List_Error(t *testing.T) {
 	}
 }
 
+func TestCompaniesHandler_List_ScrapeRunIDFilter(t *testing.T) {
+	repo := &capturingCompaniesRepo{}
+	handler := newCompaniesHandler(repo)
+
+	runID := "33333333-3333-4333-8333-333333333333"
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/companies?scrape_run_id="+runID, nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := handler.List(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if repo.lastFilter.ScrapeRunID == nil || repo.lastFilter.ScrapeRunID.String() != runID {
+		t.Fatalf("expected scrape_run_id parsed")
+	}
+}
+
+func TestCompaniesHandler_List_InvalidScrapeRunID(t *testing.T) {
+	repo := &capturingCompaniesRepo{}
+	handler := newCompaniesHandler(repo)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/companies?scrape_run_id=not-a-uuid", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := handler.List(c); err != nil {
+		t.Fatalf("expected handler to write response")
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid scrape_run_id, got %d", rec.Code)
+	}
+}
+
 func TestCompaniesHandler_ListAdmin_AllData(t *testing.T) {
 	repo := &capturingCompaniesRepo{}
 	handler := newCompaniesHandler(repo)

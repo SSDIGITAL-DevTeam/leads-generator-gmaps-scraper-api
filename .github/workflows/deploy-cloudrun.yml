@@ -9,6 +9,10 @@ on:
       - '.github/workflows/deploy-cloudrun.yml'
   workflow_dispatch:
 
+concurrency:
+  group: deploy-cloudrun-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   id-token: write
   contents: read
@@ -23,12 +27,15 @@ env:
   # Sesuaikan nama service Cloud Run kamu
   API_SERVICE: leads-api
   WORKER_SERVICE: leads-worker
+  MIGRATE_JOB_NAME: db-migrate
 
   API_IMAGE_NAME: api
   WORKER_IMAGE_NAME: worker
+  MIGRATE_IMAGE_NAME: migrate
 
   API_DOCKERFILE: api/Dockerfile
   WORKER_DOCKERFILE: worker/Dockerfile
+  MIGRATE_DOCKERFILE: migrate/Dockerfile
 
 jobs:
   deploy:
@@ -62,8 +69,22 @@ jobs:
           GIT_SHA="$(git rev-parse --short HEAD)"
           API_IMAGE="${{ env.GAR_REPO }}/${{ env.API_IMAGE_NAME }}:${GIT_SHA}"
           WORKER_IMAGE="${{ env.GAR_REPO }}/${{ env.WORKER_IMAGE_NAME }}:${GIT_SHA}"
+          echo "git_sha=${GIT_SHA}" >> "$GITHUB_OUTPUT"
           echo "api_image=${API_IMAGE}" >> "$GITHUB_OUTPUT"
           echo "worker_image=${WORKER_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Build & push migrate image
+        id: migimg
+        run: |
+          set -euo pipefail
+          GIT_SHA="${{ steps.images.outputs.git_sha }}"
+          MIGRATE_IMAGE="${{ env.GAR_REPO }}/${{ env.MIGRATE_IMAGE_NAME }}:${GIT_SHA}"
+          docker build \
+            --file "${{ env.MIGRATE_DOCKERFILE }}" \
+            --tag "${MIGRATE_IMAGE}" \
+            .
+          docker push "${MIGRATE_IMAGE}"
+          echo "migrate_image=${MIGRATE_IMAGE}" >> "$GITHUB_OUTPUT"
 
       - name: Build API image
         run: |
@@ -84,6 +105,50 @@ jobs:
 
       - name: Push Worker image
         run: docker push "${{ steps.images.outputs.worker_image }}"
+
+      - name: Deploy Cloud Run job for migrations
+        id: deploy-migrate-job
+        env:
+          PROJECT_ID: ${{ env.PROJECT_ID }}
+          REGION: ${{ env.REGION }}
+          JOB_NAME: ${{ env.MIGRATE_JOB_NAME }}
+          MIGRATE_IMAGE: ${{ steps.migimg.outputs.migrate_image }}
+          DATABASE_URL_FALLBACK: ${{ secrets.DATABASE_URL }}
+          DEPLOYER_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          SECRET_FLAGS="--set-secrets=DATABASE_URL=projects/${PROJECT_ID}/secrets/DATABASE_URL:latest"
+          if ! gcloud secrets describe DATABASE_URL --project "${PROJECT_ID}" >/dev/null 2>&1; then
+            if [ -z "${DATABASE_URL_FALLBACK}" ]; then
+              echo "::error::Secret Manager entry DATABASE_URL is missing and DATABASE_URL fallback from GitHub Secrets is not provided."
+              exit 1
+            fi
+            SECRET_FLAGS="--set-env-vars=DATABASE_URL=${DATABASE_URL_FALLBACK}"
+            echo "::warning::Falling back to GitHub Actions secret for DATABASE_URL. Prefer Secret Manager to avoid value exposure in Cloud Run job history."
+          fi
+
+          SERVICE_ACCOUNT="${DEPLOYER_SERVICE_ACCOUNT}"
+
+          gcloud run jobs deploy "${JOB_NAME}" \
+            --image "${MIGRATE_IMAGE}" \
+            --region "${REGION}" \
+            --project "${PROJECT_ID}" \
+            --service-account "${SERVICE_ACCOUNT}" \
+            --max-retries=1 \
+            --task-timeout=900s \
+            ${SECRET_FLAGS}
+
+      - name: Run migration job (blocks deploy on failure)
+        env:
+          PROJECT_ID: ${{ env.PROJECT_ID }}
+          REGION: ${{ env.REGION }}
+          JOB_NAME: ${{ env.MIGRATE_JOB_NAME }}
+        run: |
+          set -euo pipefail
+          gcloud run jobs execute "${JOB_NAME}" \
+            --project "${PROJECT_ID}" \
+            --region "${REGION}" \
+            --wait
 
       - name: Deploy API to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2

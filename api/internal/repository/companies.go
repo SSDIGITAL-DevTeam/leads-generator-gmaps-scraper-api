@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -75,13 +76,30 @@ func (r *PGXCompaniesRepository) Upsert(ctx context.Context, company *entity.Com
 
 	query := `
         INSERT INTO companies (
-            place_id, company, phone, website, rating, reviews, type_business, address, city, country, location, raw, updated_at
+            place_id,
+            company,
+            phone,
+            website,
+            rating,
+            reviews,
+            type_business,
+            address,
+            city,
+            country,
+            location,
+            raw,
+            scrape_run_id,
+            scraped_at,
+            updated_at
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
             CASE WHEN $11 IS NOT NULL AND $12 IS NOT NULL THEN
                 ST_SetSRID(ST_MakePoint($11::float8, $12::float8), 4326)::geography
             ELSE NULL END,
-            $13, NOW()
+            $13,
+            $14,
+            $15,
+            NOW()
         )
         ON CONFLICT (place_id) DO UPDATE SET
             company = EXCLUDED.company,
@@ -95,6 +113,8 @@ func (r *PGXCompaniesRepository) Upsert(ctx context.Context, company *entity.Com
             country = EXCLUDED.country,
             location = EXCLUDED.location,
             raw = EXCLUDED.raw,
+            scrape_run_id = COALESCE(EXCLUDED.scrape_run_id, companies.scrape_run_id),
+            scraped_at = COALESCE(EXCLUDED.scraped_at, companies.scraped_at),
             updated_at = NOW();
     `
 
@@ -112,6 +132,8 @@ func (r *PGXCompaniesRepository) Upsert(ctx context.Context, company *entity.Com
 		lng,
 		lat,
 		raw,
+		company.ScrapeRunID,
+		company.ScrapedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert company: %w", err)
@@ -203,6 +225,7 @@ func (r *PGXCompaniesRepository) List(ctx context.Context, filter dto.ListFilter
         SELECT
             id,
             place_id,
+            scrape_run_id,
             company,
             phone,
             website,
@@ -215,6 +238,7 @@ func (r *PGXCompaniesRepository) List(ctx context.Context, filter dto.ListFilter
             CASE WHEN location IS NOT NULL THEN ST_X(location::geometry) END AS longitude,
             CASE WHEN location IS NOT NULL THEN ST_Y(location::geometry) END AS latitude,
             raw,
+            scraped_at,
             created_at,
             updated_at
         FROM companies
@@ -247,12 +271,49 @@ func (r *PGXCompaniesRepository) List(ctx context.Context, filter dto.ListFilter
 		args = append(args, filter.Country)
 		idx++
 	}
+	if filter.ScrapeRunID != nil {
+		clauses = append(clauses, fmt.Sprintf("scrape_run_id = $%d", idx))
+		args = append(args, *filter.ScrapeRunID)
+		idx++
+	}
 	if filter.MinRating != nil {
 		clauses = append(clauses, fmt.Sprintf("rating >= $%d", idx))
 		args = append(args, *filter.MinRating)
 		idx++
 	}
-	if filter.LatestRunOnly && filter.UpdatedSince == nil {
+	if filter.LatestRunOnly && filter.UpdatedSince == nil && filter.ScrapeRunID == nil {
+		runClauses := append([]string{}, clauses...)
+		runClauses = append(runClauses, "scrape_run_id IS NOT NULL")
+
+		runQuery := strings.Builder{}
+		runQuery.WriteString("SELECT scrape_run_id, MAX(scraped_at) AS scraped_at FROM companies")
+		if len(runClauses) > 0 {
+			runQuery.WriteString(" WHERE ")
+			runQuery.WriteString(strings.Join(runClauses, " AND "))
+		}
+		runQuery.WriteString(" GROUP BY scrape_run_id ORDER BY MAX(scraped_at) DESC LIMIT 1")
+
+		var (
+			latestRunID   sql.NullString
+			latestScraped sql.NullTime
+		)
+		err := r.pool.QueryRow(ctx, runQuery.String(), args...).Scan(&latestRunID, &latestScraped)
+		if err != nil {
+			if err != pgx.ErrNoRows {
+				return nil, fmt.Errorf("determine latest scrape run: %w", err)
+			}
+		} else if latestRunID.Valid {
+			parsed, parseErr := uuid.Parse(latestRunID.String)
+			if parseErr != nil {
+				return nil, fmt.Errorf("parse latest scrape run id: %w", parseErr)
+			}
+			filter.ScrapeRunID = &parsed
+		} else if latestScraped.Valid {
+			ts := latestScraped.Time
+			filter.UpdatedSince = &ts
+		}
+	}
+	if filter.LatestRunOnly && filter.UpdatedSince == nil && filter.ScrapeRunID == nil {
 		latestQuery := "SELECT MAX(updated_at) FROM companies"
 		if len(clauses) > 0 {
 			latestQuery += " WHERE " + strings.Join(clauses, " AND ")
@@ -317,6 +378,7 @@ func scanCompanies(rows pgx.Rows) ([]entity.Company, error) {
 		var (
 			c            entity.Company
 			placeID      sql.NullString
+			scrapeRunID  sql.NullString
 			phone        sql.NullString
 			website      sql.NullString
 			rating       sql.NullFloat64
@@ -328,11 +390,13 @@ func scanCompanies(rows pgx.Rows) ([]entity.Company, error) {
 			longitude    sql.NullFloat64
 			latitude     sql.NullFloat64
 			raw          []byte
+			scrapedAt    sql.NullTime
 		)
 
 		err := rows.Scan(
 			&c.ID,
 			&placeID,
+			&scrapeRunID,
 			&c.Company,
 			&phone,
 			&website,
@@ -345,6 +409,7 @@ func scanCompanies(rows pgx.Rows) ([]entity.Company, error) {
 			&longitude,
 			&latitude,
 			&raw,
+			&scrapedAt,
 			&c.CreatedAt,
 			&c.UpdatedAt,
 		)
@@ -355,6 +420,13 @@ func scanCompanies(rows pgx.Rows) ([]entity.Company, error) {
 		if placeID.Valid {
 			val := placeID.String
 			c.PlaceID = &val
+		}
+		if scrapeRunID.Valid {
+			parsed, err := uuid.Parse(scrapeRunID.String)
+			if err != nil {
+				return nil, fmt.Errorf("parse scrape_run_id: %w", err)
+			}
+			c.ScrapeRunID = &parsed
 		}
 		if phone.Valid {
 			val := phone.String
@@ -401,6 +473,10 @@ func scanCompanies(rows pgx.Rows) ([]entity.Company, error) {
 			c.Raw = json.RawMessage(raw)
 		} else {
 			c.Raw = json.RawMessage([]byte("{}"))
+		}
+		if scrapedAt.Valid {
+			ts := scrapedAt.Time
+			c.ScrapedAt = &ts
 		}
 
 		companies = append(companies, c)

@@ -1,6 +1,10 @@
 package dto
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // ListFilter contains query parameters for company listing endpoints.
 type ListFilter struct {
@@ -10,6 +14,7 @@ type ListFilter struct {
 	Country       string
 	MinRating     *float64
 	UpdatedSince  *time.Time
+	ScrapeRunID   *uuid.UUID
 	Sort          string
 	LatestRunOnly bool
 	Page          int

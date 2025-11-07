@@ -33,9 +33,11 @@ func (s *stubCompanyRows) Scan(dest ...any) error {
 		return errors.New("scan called before next")
 	}
 	id := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	runID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 	created := time.Now()
 	updated := created
 	placeID := sql.NullString{String: "place-123", Valid: true}
+	runIDVal := sql.NullString{String: runID.String(), Valid: true}
 	phone := sql.NullString{String: "+123456", Valid: true}
 	website := sql.NullString{String: "https://example.com", Valid: true}
 	rating := sql.NullFloat64{Float64: 4.5, Valid: true}
@@ -47,23 +49,26 @@ func (s *stubCompanyRows) Scan(dest ...any) error {
 	lng := sql.NullFloat64{Float64: 10.0, Valid: true}
 	lat := sql.NullFloat64{Float64: 20.0, Valid: true}
 	raw := []byte(`{"foo":"bar"}`)
+	scrapedAt := sql.NullTime{Time: created, Valid: true}
 
 	*dest[0].(*uuid.UUID) = id
 	*dest[1].(*sql.NullString) = placeID
-	*dest[2].(*string) = "Acme"
-	*dest[3].(*sql.NullString) = phone
-	*dest[4].(*sql.NullString) = website
-	*dest[5].(*sql.NullFloat64) = rating
-	*dest[6].(*sql.NullInt64) = reviews
-	*dest[7].(*sql.NullString) = typeBusiness
-	*dest[8].(*sql.NullString) = address
-	*dest[9].(*sql.NullString) = city
-	*dest[10].(*sql.NullString) = country
-	*dest[11].(*sql.NullFloat64) = lng
-	*dest[12].(*sql.NullFloat64) = lat
-	*dest[13].(*[]byte) = raw
-	*dest[14].(*time.Time) = created
-	*dest[15].(*time.Time) = updated
+	*dest[2].(*sql.NullString) = runIDVal
+	*dest[3].(*string) = "Acme"
+	*dest[4].(*sql.NullString) = phone
+	*dest[5].(*sql.NullString) = website
+	*dest[6].(*sql.NullFloat64) = rating
+	*dest[7].(*sql.NullInt64) = reviews
+	*dest[8].(*sql.NullString) = typeBusiness
+	*dest[9].(*sql.NullString) = address
+	*dest[10].(*sql.NullString) = city
+	*dest[11].(*sql.NullString) = country
+	*dest[12].(*sql.NullFloat64) = lng
+	*dest[13].(*sql.NullFloat64) = lat
+	*dest[14].(*[]byte) = raw
+	*dest[15].(*sql.NullTime) = scrapedAt
+	*dest[16].(*time.Time) = created
+	*dest[17].(*time.Time) = updated
 	return nil
 }
 
@@ -100,6 +105,12 @@ func TestScanCompanies(t *testing.T) {
 	company := rows[0]
 	if company.Company != "Acme" || company.PlaceID == nil || *company.PlaceID != "place-123" {
 		t.Fatalf("unexpected company: %+v", company)
+	}
+	if company.ScrapeRunID == nil || company.ScrapeRunID.String() != "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" {
+		t.Fatalf("expected scrape_run_id set, got %+v", company.ScrapeRunID)
+	}
+	if company.ScrapedAt == nil {
+		t.Fatalf("expected scraped_at set")
 	}
 	if company.Longitude == nil || *company.Longitude != 10.0 {
 		t.Fatalf("expected longitude to be set")

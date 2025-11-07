@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
 	"github.com/octobees/leads-generator/api/internal/dto"
@@ -54,6 +55,14 @@ func (h *CompaniesHandler) listInternal(c echo.Context, latestOnly bool) error {
 		if filter.Sort == "" {
 			filter.Sort = "recent"
 		}
+	}
+
+	if runIDParam := strings.TrimSpace(c.QueryParam("scrape_run_id")); runIDParam != "" {
+		parsed, err := uuid.Parse(runIDParam)
+		if err != nil {
+			return Error(c, http.StatusBadRequest, "invalid scrape_run_id")
+		}
+		filter.ScrapeRunID = &parsed
 	}
 
 	if updatedSinceStr := strings.TrimSpace(c.QueryParam("updated_since")); updatedSinceStr != "" {

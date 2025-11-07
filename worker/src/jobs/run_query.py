@@ -3,6 +3,8 @@
 import argparse
 import logging
 import time
+import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 from src.core.config import get_settings
@@ -35,6 +37,10 @@ def run_query_job(
 
     logger.info("Running Places text search for query=%s", query)
 
+    scrape_run_id = uuid.uuid4()
+    scraped_at = datetime.now(timezone.utc)
+    logger.info("Assigned scrape_run_id=%s", scrape_run_id)
+
     page_token = None
     processed_pages = 0
 
@@ -56,6 +62,8 @@ def run_query_job(
                 continue
 
             row = to_company_row(details, fallback_city=city, fallback_country=country)
+            row["scrape_run_id"] = scrape_run_id
+            row["scraped_at"] = scraped_at
             rating_val = row.get("rating")
             if min_rating is not None and rating_val is not None:
                 try:

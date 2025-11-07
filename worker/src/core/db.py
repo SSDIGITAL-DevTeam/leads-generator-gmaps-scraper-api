@@ -57,6 +57,8 @@ def _prepare_params(row: Dict[str, Any]) -> Dict[str, Any]:
         "lng": row.get("lng"),
         "lat": row.get("lat"),
         "raw": extras.Json(row.get("raw") or {}),
+        "scrape_run_id": row.get("scrape_run_id"),
+        "scraped_at": row.get("scraped_at"),
     }
 
 
@@ -74,6 +76,8 @@ INSERT INTO companies (
     country,
     location,
     raw,
+    scrape_run_id,
+    scraped_at,
     updated_at
 ) VALUES (
     %(place_id)s,
@@ -90,6 +94,8 @@ INSERT INTO companies (
         ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326)::geography
     ELSE NULL END,
     %(raw)s,
+    %(scrape_run_id)s,
+    %(scraped_at)s,
     NOW()
 )
 ON CONFLICT (place_id) DO UPDATE SET
@@ -104,6 +110,8 @@ ON CONFLICT (place_id) DO UPDATE SET
     country = EXCLUDED.country,
     location = EXCLUDED.location,
     raw = EXCLUDED.raw,
+    scrape_run_id = COALESCE(EXCLUDED.scrape_run_id, companies.scrape_run_id),
+    scraped_at = COALESCE(EXCLUDED.scraped_at, companies.scraped_at),
     updated_at = NOW();
 """
 
@@ -120,6 +128,8 @@ INSERT INTO companies (
     country,
     location,
     raw,
+    scrape_run_id,
+    scraped_at,
     updated_at
 ) VALUES (
     %(company)s,
@@ -135,6 +145,8 @@ INSERT INTO companies (
         ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326)::geography
     ELSE NULL END,
     %(raw)s,
+    %(scrape_run_id)s,
+    %(scraped_at)s,
     NOW()
 )
 ON CONFLICT (company, address) WHERE place_id IS NULL DO UPDATE SET
@@ -147,6 +159,8 @@ ON CONFLICT (company, address) WHERE place_id IS NULL DO UPDATE SET
     country = EXCLUDED.country,
     location = EXCLUDED.location,
     raw = EXCLUDED.raw,
+    scrape_run_id = COALESCE(EXCLUDED.scrape_run_id, companies.scrape_run_id),
+    scraped_at = COALESCE(EXCLUDED.scraped_at, companies.scraped_at),
     updated_at = NOW();
 """
 
