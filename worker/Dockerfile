@@ -13,11 +13,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # cache-friendly (requirements dulu)
-COPY worker/requirements.txt ./requirements.txt
+COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir --default-timeout=120 --retries=5 -r requirements.txt
 
 # source belakangan
-COPY worker/ .
+COPY . .
 
 ENV PYTHONPATH=/app
 EXPOSE 9000
