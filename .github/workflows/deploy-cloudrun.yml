@@ -181,7 +181,7 @@ jobs:
           region: ${{ env.REGION }}
           image: ${{ steps.images.outputs.api_image }}
           project_id: ${{ env.PROJECT_ID }}
-          allow_unauthenticated: true
+          flags: --allow-unauthenticated
 
       # ---- Deploy Worker (private) ----
       - name: Deploy Worker to Cloud Run
@@ -191,7 +191,7 @@ jobs:
           region: ${{ env.REGION }}
           image: ${{ steps.images.outputs.worker_image }}
           project_id: ${{ env.PROJECT_ID }}
-          allow_unauthenticated: false
+          flags: --no-allow-unauthenticated
 
       - name: Show URLs
         run: |
