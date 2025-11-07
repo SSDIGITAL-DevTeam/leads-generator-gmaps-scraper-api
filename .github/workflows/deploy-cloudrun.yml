@@ -143,10 +143,35 @@ jobs:
       - name: Run migration job (blocks deploy on failure)
         run: |
           set -euo pipefail
-          gcloud run jobs execute "${{ env.MIGRATE_JOB_NAME }}" \
+          if ! gcloud run jobs execute "${{ env.MIGRATE_JOB_NAME }}" \
             --project "${{ env.PROJECT_ID }}" \
             --region "${{ env.REGION }}" \
-            --wait
+            --wait; then
+            EXIT_CODE=$?
+            echo "::warning::Migration job failed. Fetching execution details..."
+            LAST_EXECUTION="$(gcloud run jobs executions list "${{ env.MIGRATE_JOB_NAME }}" \
+              --project "${{ env.PROJECT_ID }}" \
+              --region "${{ env.REGION }}" \
+              --limit=1 \
+              --sort-by=~createTime \
+              --format='value(name)' || true)"
+            if [ -n "${LAST_EXECUTION}" ]; then
+              echo "::group::db-migrate execution describe"
+              gcloud run jobs executions describe "${LAST_EXECUTION}" \
+                --project "${{ env.PROJECT_ID }}" \
+                --region "${{ env.REGION }}" || true
+              echo "::endgroup::"
+
+              echo "::group::db-migrate execution logs"
+              gcloud run jobs executions get-logs "${LAST_EXECUTION}" \
+                --project "${{ env.PROJECT_ID }}" \
+                --region "${{ env.REGION }}" || true
+              echo "::endgroup::"
+            else
+              echo "::error::Unable to determine failed execution name."
+            fi
+            exit "${EXIT_CODE}"
+          fi
 
       # ---- Deploy API ----
       - name: Deploy API to Cloud Run
