@@ -52,8 +52,9 @@ func main() {
 	userAdminHandler := handler.NewUserAdminHandler(userService)
 	companiesHandler := handler.NewCompaniesHandler(companiesService)
 	adminUploadHandler := handler.NewAdminUploadHandler(companiesService)
-	httpClient := &http.Client{Timeout: 15 * time.Second}
-	scrapeHandler := handler.NewScrapeHandler(httpClient, cfg.WorkerBaseURL)
+
+	// ⚡ scrapeHandler menggunakan ID-token client otomatis
+	scrapeHandler := handler.NewScrapeHandler(nil, cfg.WorkerBaseURL)
 
 	e := echo.New()
 	e.HideBanner = true

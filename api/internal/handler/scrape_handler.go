@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/octobees/leads-generator/api/internal/dto"
 	middleware "github.com/octobees/leads-generator/api/internal/middleware"
+
+	"google.golang.org/api/idtoken"
 )
 
 // ScrapeHandler posts scrape requests to the worker service.
@@ -22,12 +25,28 @@ type ScrapeHandler struct {
 	workerBaseURL string
 }
 
-// NewScrapeHandler constructs a scrape handler backed by the provided HTTP client.
+// NewScrapeHandler constructs a scrape handler backed by an HTTP client.
+// If `client == nil`, it automatically creates an ID-token client for Cloud Run → Cloud Run calls.
 func NewScrapeHandler(client *http.Client, workerBaseURL string) *ScrapeHandler {
-	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
+	if workerBaseURL == "" {
+		panic("workerBaseURL must not be empty")
 	}
-	return &ScrapeHandler{client: client, workerBaseURL: workerBaseURL}
+
+	// Auto-create ID Token Client (secure Cloud Run → Cloud Run call)
+	if client == nil {
+		idc, err := idtoken.NewClient(context.Background(), strings.TrimRight(workerBaseURL, "/"))
+		if err != nil {
+			// fallback untuk dev/local
+			client = &http.Client{Timeout: 10 * time.Second}
+		} else {
+			client = idc
+		}
+	}
+
+	return &ScrapeHandler{
+		client:        client,
+		workerBaseURL: strings.TrimRight(workerBaseURL, "/"),
+	}
 }
 
 // Enqueue handles POST /scrape requests and forwards them to the worker.
@@ -37,6 +56,7 @@ func (h *ScrapeHandler) Enqueue(c echo.Context) error {
 		return Error(c, http.StatusBadRequest, "invalid payload")
 	}
 
+	// Normalize fields
 	req.TypeBusiness = strings.TrimSpace(req.TypeBusiness)
 	req.City = strings.TrimSpace(req.City)
 	req.Country = strings.TrimSpace(req.Country)
@@ -47,8 +67,8 @@ func (h *ScrapeHandler) Enqueue(c echo.Context) error {
 	if req.TypeBusiness == "" {
 		return Error(c, http.StatusBadRequest, "type_business is required")
 	}
+
 	if req.City == "" || req.Country == "" {
-		// tolerate legacy payloads containing only location by attempting a naive split
 		if req.Location != "" {
 			parts := strings.Split(req.Location, ",")
 			if len(parts) >= 2 {
@@ -57,12 +77,9 @@ func (h *ScrapeHandler) Enqueue(c echo.Context) error {
 			}
 		}
 	}
+
 	if req.City == "" || req.Country == "" {
 		return Error(c, http.StatusBadRequest, "city and country are required")
-	}
-
-	if h.workerBaseURL == "" {
-		return Error(c, http.StatusServiceUnavailable, "worker endpoint is not configured")
 	}
 
 	payload := map[string]any{
@@ -79,13 +96,16 @@ func (h *ScrapeHandler) Enqueue(c echo.Context) error {
 		return Error(c, http.StatusInternalServerError, "failed to marshal request")
 	}
 
-	workerURL := strings.TrimRight(h.workerBaseURL, "/") + "/scrape"
+	workerURL := h.workerBaseURL + "/scrape"
+
 	ctx := c.Request().Context()
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, workerURL, bytes.NewReader(body))
 	if err != nil {
 		return Error(c, http.StatusInternalServerError, "failed to create worker request")
 	}
+
 	httpReq.Header.Set("Content-Type", "application/json")
+
 	if rid := middleware.RequestIDFromContext(c); rid != "" {
 		httpReq.Header.Set("X-Request-ID", rid)
 	}
