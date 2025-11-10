@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -21,7 +22,11 @@ type CompaniesRepository interface {
 	List(ctx context.Context, filter dto.ListFilter) ([]entity.Company, error)
 	BulkUpsertCompanies(ctx context.Context, records []BulkUpsertCompanyInput) (BulkUpsertResult, error)
 	UpsertEnrichment(ctx context.Context, enrichment *entity.CompanyEnrichment) error
+	GetEnrichment(ctx context.Context, companyID uuid.UUID) (*entity.CompanyEnrichment, error)
 }
+
+// ErrEnrichmentNotFound indicates there is no enrichment row for the given company.
+var ErrEnrichmentNotFound = errors.New("company enrichment not found")
 
 // BulkUpsertCompanyInput represents the minimal fields required for CSV ingestion.
 type BulkUpsertCompanyInput struct {
@@ -442,6 +447,85 @@ func stringSliceOrEmpty(values []string) []string {
 		return []string{}
 	}
 	return values
+}
+
+// GetEnrichment returns the enrichment metadata for a given company.
+func (r *PGXCompaniesRepository) GetEnrichment(ctx context.Context, companyID uuid.UUID) (*entity.CompanyEnrichment, error) {
+	query := `
+		SELECT
+			company_id,
+			emails,
+			phones,
+			socials,
+			address,
+			contact_form_url,
+			about_summary,
+			metadata,
+			created_at,
+			updated_at
+		FROM company_enrichments
+		WHERE company_id = $1
+	`
+
+	var (
+		record          entity.CompanyEnrichment
+		emails          []string
+		phones          []string
+		socialsJSON     []byte
+		metadataJSON    []byte
+		address         sql.NullString
+		contactForm     sql.NullString
+		aboutSummary    sql.NullString
+	)
+
+	err := r.pool.QueryRow(ctx, query, companyID).Scan(
+		&record.CompanyID,
+		&emails,
+		&phones,
+		&socialsJSON,
+		&address,
+		&contactForm,
+		&aboutSummary,
+		&metadataJSON,
+		&record.CreatedAt,
+		&record.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrEnrichmentNotFound
+		}
+		return nil, fmt.Errorf("fetch enrichment: %w", err)
+	}
+
+	if len(emails) > 0 {
+		record.Emails = append([]string(nil), emails...)
+	}
+	if len(phones) > 0 {
+		record.Phones = append([]string(nil), phones...)
+	}
+	if len(socialsJSON) > 0 {
+		if err := json.Unmarshal(socialsJSON, &record.Socials); err != nil {
+			return nil, fmt.Errorf("unmarshal socials: %w", err)
+		}
+	}
+	if len(metadataJSON) > 0 {
+		if err := json.Unmarshal(metadataJSON, &record.Metadata); err != nil {
+			return nil, fmt.Errorf("unmarshal metadata: %w", err)
+		}
+	}
+	record.Address = nullStringToPtr(address)
+	record.ContactFormURL = nullStringToPtr(contactForm)
+	record.AboutSummary = nullStringToPtr(aboutSummary)
+
+	return &record, nil
+}
+
+func nullStringToPtr(value sql.NullString) *string {
+	if value.Valid {
+		val := value.String
+		return &val
+	}
+	return nil
 }
 
 func scanCompanies(rows pgx.Rows) ([]entity.Company, error) {

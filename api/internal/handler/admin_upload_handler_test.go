@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
 	"github.com/octobees/leads-generator/api/internal/dto"
@@ -37,6 +38,10 @@ func (s *stubCompaniesRepository) Upsert(ctx context.Context, company *entity.Co
 
 func (s *stubCompaniesRepository) UpsertEnrichment(ctx context.Context, enrichment *entity.CompanyEnrichment) error {
 	return nil
+}
+
+func (s *stubCompaniesRepository) GetEnrichment(ctx context.Context, companyID uuid.UUID) (*entity.CompanyEnrichment, error) {
+	return nil, nil
 }
 
 func newAdminUploadHandler(repo repository.CompaniesRepository) *AdminUploadHandler {

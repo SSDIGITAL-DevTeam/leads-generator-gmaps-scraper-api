@@ -33,6 +33,7 @@ func Register(e *echo.Echo, cfg *config.Config, jwtManager *auth.JWTManager, han
 
 	if handlers.Enrich != nil {
 		e.POST("/enrich-result", handlers.Enrich.SaveResult)
+		e.GET("/enrich-result/:company_id", handlers.Enrich.GetResult)
 	}
 
 	secured := e.Group("")

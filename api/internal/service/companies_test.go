@@ -6,16 +6,19 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/octobees/leads-generator/api/internal/dto"
 	"github.com/octobees/leads-generator/api/internal/entity"
 	"github.com/octobees/leads-generator/api/internal/repository"
 )
 
 type mockCompaniesRepository struct {
-    list   func(ctx context.Context, filter dto.ListFilter) ([]entity.Company, error)
-    bulk   func(ctx context.Context, records []repository.BulkUpsertCompanyInput) (repository.BulkUpsertResult, error)
-    upsert func(ctx context.Context, company *entity.Company) error
-    enrich func(ctx context.Context, enrichment *entity.CompanyEnrichment) error
+	list          func(ctx context.Context, filter dto.ListFilter) ([]entity.Company, error)
+	bulk          func(ctx context.Context, records []repository.BulkUpsertCompanyInput) (repository.BulkUpsertResult, error)
+	upsert        func(ctx context.Context, company *entity.Company) error
+	enrich        func(ctx context.Context, enrichment *entity.CompanyEnrichment) error
+	getEnrichment func(ctx context.Context, companyID uuid.UUID) (*entity.CompanyEnrichment, error)
 }
 
 func (m *mockCompaniesRepository) List(ctx context.Context, filter dto.ListFilter) ([]entity.Company, error) {
@@ -40,10 +43,17 @@ func (m *mockCompaniesRepository) Upsert(ctx context.Context, company *entity.Co
 }
 
 func (m *mockCompaniesRepository) UpsertEnrichment(ctx context.Context, enrichment *entity.CompanyEnrichment) error {
-    if m.enrich != nil {
-        return m.enrich(ctx, enrichment)
-    }
-    return errors.New("enrich not implemented")
+	if m.enrich != nil {
+		return m.enrich(ctx, enrichment)
+	}
+	return errors.New("enrich not implemented")
+}
+
+func (m *mockCompaniesRepository) GetEnrichment(ctx context.Context, companyID uuid.UUID) (*entity.CompanyEnrichment, error) {
+	if m.getEnrichment != nil {
+		return m.getEnrichment(ctx, companyID)
+	}
+	return nil, errors.New("get enrichment not implemented")
 }
 
 func TestCompaniesService_ListCompanies_AppliesDefaults(t *testing.T) {
@@ -223,6 +233,46 @@ func TestCompaniesService_SaveEnrichment_InvalidCompanyID(t *testing.T) {
 	svc := NewCompaniesService(&mockCompaniesRepository{})
 	if err := svc.SaveEnrichment(context.Background(), dto.EnrichResultRequest{CompanyID: "not-a-uuid"}); !errors.Is(err, ErrInvalidCompanyID) {
 		t.Fatalf("expected ErrInvalidCompanyID, got %v", err)
+	}
+}
+
+func TestCompaniesService_GetEnrichment_Success(t *testing.T) {
+	record := &entity.CompanyEnrichment{CompanyID: uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")}
+	repo := &mockCompaniesRepository{
+		getEnrichment: func(ctx context.Context, companyID uuid.UUID) (*entity.CompanyEnrichment, error) {
+			if companyID != record.CompanyID {
+				t.Fatalf("unexpected company id: %s", companyID)
+			}
+			return record, nil
+		},
+	}
+
+	svc := NewCompaniesService(repo)
+	result, err := svc.GetEnrichment(context.Background(), record.CompanyID.String())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != record {
+		t.Fatalf("expected enrichment returned")
+	}
+}
+
+func TestCompaniesService_GetEnrichment_InvalidCompanyID(t *testing.T) {
+	svc := NewCompaniesService(&mockCompaniesRepository{})
+	if _, err := svc.GetEnrichment(context.Background(), "bad"); !errors.Is(err, ErrInvalidCompanyID) {
+		t.Fatalf("expected ErrInvalidCompanyID, got %v", err)
+	}
+}
+
+func TestCompaniesService_GetEnrichment_NotFound(t *testing.T) {
+	repo := &mockCompaniesRepository{
+		getEnrichment: func(ctx context.Context, companyID uuid.UUID) (*entity.CompanyEnrichment, error) {
+			return nil, repository.ErrEnrichmentNotFound
+		},
+	}
+	svc := NewCompaniesService(repo)
+	if _, err := svc.GetEnrichment(context.Background(), "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"); !errors.Is(err, ErrEnrichmentNotFound) {
+		t.Fatalf("expected ErrEnrichmentNotFound, got %v", err)
 	}
 }
 

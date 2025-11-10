@@ -162,6 +162,69 @@ func TestPGXCompaniesRepository_UpsertEnrichment_Validation(t *testing.T) {
 	}
 }
 
+func TestPGXCompaniesRepository_GetEnrichment_NotFound(t *testing.T) {
+	repo := &PGXCompaniesRepository{pool: &stubPool{
+		queryRowFunc: func(ctx context.Context, query string, args ...any) pgx.Row {
+			return &stubRow{scan: func(dest ...any) error {
+				return pgx.ErrNoRows
+			}}
+		},
+	}}
+
+	_, err := repo.GetEnrichment(context.Background(), uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
+	if !errors.Is(err, ErrEnrichmentNotFound) {
+		t.Fatalf("expected ErrEnrichmentNotFound, got %v", err)
+	}
+}
+
+func TestPGXCompaniesRepository_GetEnrichment_Success(t *testing.T) {
+	socialsJSON := []byte(`{"linkedin":["https://linkedin.com/company/acme"]}`)
+	metadataJSON := []byte(`{"website":"https://acme.com"}`)
+	repo := &PGXCompaniesRepository{pool: &stubPool{
+		queryRowFunc: func(ctx context.Context, query string, args ...any) pgx.Row {
+			return &stubRow{scan: func(dest ...any) error {
+				companyID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+				emails := []string{"info@example.com"}
+				phones := []string{"+123"}
+				address := sql.NullString{String: "Main St", Valid: true}
+				contact := sql.NullString{String: "https://acme.com/contact", Valid: true}
+				about := sql.NullString{String: "About us", Valid: true}
+				created := time.Now()
+				updated := created.Add(time.Minute)
+
+				*dest[0].(*uuid.UUID) = companyID
+				*dest[1].(*[]string) = emails
+				*dest[2].(*[]string) = phones
+				*dest[3].(*[]byte) = socialsJSON
+				*dest[4].(*sql.NullString) = address
+				*dest[5].(*sql.NullString) = contact
+				*dest[6].(*sql.NullString) = about
+				*dest[7].(*[]byte) = metadataJSON
+				*dest[8].(*time.Time) = created
+				*dest[9].(*time.Time) = updated
+				return nil
+			}}
+		},
+	}}
+
+	result, err := repo.GetEnrichment(context.Background(), uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Address == nil || *result.Address != "Main St" {
+		t.Fatalf("expected address set, got %+v", result.Address)
+	}
+	if len(result.Emails) != 1 || result.Emails[0] != "info@example.com" {
+		t.Fatalf("unexpected emails: %+v", result.Emails)
+	}
+	if result.Socials["linkedin"][0] != "https://linkedin.com/company/acme" {
+		t.Fatalf("expected socials decoded, got %+v", result.Socials)
+	}
+	if result.Metadata["website"] != "https://acme.com" {
+		t.Fatalf("expected metadata decoded, got %+v", result.Metadata)
+	}
+}
+
 func TestPGXCompaniesRepository_UpsertEnrichment_Success(t *testing.T) {
 	companyID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 	address := "Main St"
@@ -178,7 +241,7 @@ func TestPGXCompaniesRepository_UpsertEnrichment_Success(t *testing.T) {
 
 	called := false
 	repo := &PGXCompaniesRepository{pool: &stubPool{
-		execFunc: func(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+		execFunc: func(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
 			called = true
 			if len(args) != 8 {
 				t.Fatalf("expected 8 args, got %d", len(args))

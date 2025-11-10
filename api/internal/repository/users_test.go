@@ -12,29 +12,30 @@ import (
 )
 
 type stubPool struct {
-	queryRowFunc func(ctx context.Context, sql string, args ...any) pgx.Row
-	queryFunc    func(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	execFunc     func(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	queryRowFunc func(ctx context.Context, query string, args ...any) pgx.Row
+	queryFunc    func(ctx context.Context, query string, args ...any) (pgx.Rows, error)
+	execFunc     func(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error)
 	beginTxFunc  func(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
 }
 
-func (s *stubPool) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+
+func (s *stubPool) QueryRow(ctx context.Context, query string, args ...any) pgx.Row {
 	if s.queryRowFunc != nil {
-		return s.queryRowFunc(ctx, sql, args...)
+		return s.queryRowFunc(ctx, query, args...)
 	}
 	return &stubRow{scan: func(dest ...any) error { return nil }}
 }
 
-func (s *stubPool) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+func (s *stubPool) Query(ctx context.Context, query string, args ...any) (pgx.Rows, error) {
 	if s.queryFunc != nil {
-		return s.queryFunc(ctx, sql, args...)
+		return s.queryFunc(ctx, query, args...)
 	}
 	return nil, errors.New("query not implemented")
 }
 
-func (s *stubPool) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+func (s *stubPool) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
 	if s.execFunc != nil {
-		return s.execFunc(ctx, sql, args...)
+		return s.execFunc(ctx, query, args...)
 	}
 	return pgconn.CommandTag{}, errors.New("exec not implemented")
 }
@@ -97,7 +98,7 @@ func (s *stubRows) Conn() *pgx.Conn { return nil }
 
 func TestPGXUsersRepository_FindByEmail(t *testing.T) {
 	repo := &PGXUsersRepository{pool: &stubPool{
-		queryRowFunc: func(ctx context.Context, sql string, args ...any) pgx.Row {
+		queryRowFunc: func(ctx context.Context, query string, args ...any) pgx.Row {
 			return &stubRow{scan: func(dest ...any) error {
 				id := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 				created := time.Now()
@@ -122,7 +123,7 @@ func TestPGXUsersRepository_FindByEmail(t *testing.T) {
 	}
 
 	repo.pool = &stubPool{
-		queryRowFunc: func(ctx context.Context, sql string, args ...any) pgx.Row {
+		queryRowFunc: func(ctx context.Context, query string, args ...any) pgx.Row {
 			return &stubRow{scan: func(dest ...any) error {
 				return pgx.ErrNoRows
 			}}
@@ -135,7 +136,7 @@ func TestPGXUsersRepository_FindByEmail(t *testing.T) {
 
 func TestPGXUsersRepository_Create(t *testing.T) {
 	repo := &PGXUsersRepository{pool: &stubPool{
-		queryRowFunc: func(ctx context.Context, sql string, args ...any) pgx.Row {
+		queryRowFunc: func(ctx context.Context, query string, args ...any) pgx.Row {
 			return &stubRow{scan: func(dest ...any) error {
 				id := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 				created := time.Now()
@@ -163,7 +164,7 @@ func TestPGXUsersRepository_Create(t *testing.T) {
 
 func TestPGXUsersRepository_List(t *testing.T) {
 	repo := &PGXUsersRepository{pool: &stubPool{
-		queryFunc: func(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+		queryFunc: func(ctx context.Context, query string, args ...any) (pgx.Rows, error) {
 			return &stubRows{
 				scans: []func(dest ...any) error{
 					func(dest ...any) error {
@@ -194,7 +195,7 @@ func TestPGXUsersRepository_List(t *testing.T) {
 
 func TestPGXUsersRepository_Update(t *testing.T) {
 	repo := &PGXUsersRepository{pool: &stubPool{
-		queryRowFunc: func(ctx context.Context, sql string, args ...any) pgx.Row {
+		queryRowFunc: func(ctx context.Context, query string, args ...any) pgx.Row {
 			return &stubRow{scan: func(dest ...any) error {
 				id := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 				created := time.Now()
@@ -221,7 +222,7 @@ func TestPGXUsersRepository_Update(t *testing.T) {
 	}
 
 	repo.pool = &stubPool{
-		queryRowFunc: func(ctx context.Context, sql string, args ...any) pgx.Row {
+		queryRowFunc: func(ctx context.Context, query string, args ...any) pgx.Row {
 			return &stubRow{scan: func(dest ...any) error {
 				return pgx.ErrNoRows
 			}}
@@ -234,7 +235,7 @@ func TestPGXUsersRepository_Update(t *testing.T) {
 
 func TestPGXUsersRepository_Delete(t *testing.T) {
 	repo := &PGXUsersRepository{pool: &stubPool{
-		execFunc: func(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+		execFunc: func(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
 			return pgconn.NewCommandTag("DELETE 1"), nil
 		},
 	}}
@@ -244,7 +245,7 @@ func TestPGXUsersRepository_Delete(t *testing.T) {
 	}
 
 	repo.pool = &stubPool{
-		execFunc: func(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+		execFunc: func(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
 			return pgconn.NewCommandTag("DELETE 0"), nil
 		},
 	}

@@ -22,7 +22,10 @@ type CompaniesService struct {
 }
 
 // ErrInvalidCompanyID is returned when the provided company identifier cannot be parsed as UUID.
-var ErrInvalidCompanyID = errors.New("invalid company_id")
+var (
+	ErrInvalidCompanyID   = errors.New("invalid company_id")
+	ErrEnrichmentNotFound = errors.New("company enrichment not found")
+)
 
 // CSVValidationError indicates that the provided CSV payload is invalid.
 type CSVValidationError struct {
@@ -159,6 +162,23 @@ func (s *CompaniesService) SaveEnrichment(ctx context.Context, payload dto.Enric
 	}
 
 	return s.repo.UpsertEnrichment(ctx, enrichment)
+}
+
+// GetEnrichment fetches enrichment metadata for a company.
+func (s *CompaniesService) GetEnrichment(ctx context.Context, companyIDRaw string) (*entity.CompanyEnrichment, error) {
+	companyID, err := uuid.Parse(strings.TrimSpace(companyIDRaw))
+	if err != nil {
+		return nil, ErrInvalidCompanyID
+	}
+
+	enrichment, err := s.repo.GetEnrichment(ctx, companyID)
+	if err != nil {
+		if errors.Is(err, repository.ErrEnrichmentNotFound) {
+			return nil, ErrEnrichmentNotFound
+		}
+		return nil, err
+	}
+	return enrichment, nil
 }
 
 var requiredCSVHeaders = []string{"company", "address", "phone", "website", "rating", "reviews", "type_business", "city", "country"}

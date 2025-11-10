@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
 	"github.com/octobees/leads-generator/api/internal/dto"
@@ -17,8 +18,10 @@ import (
 )
 
 type enrichmentRepoStub struct {
-	saved *entity.CompanyEnrichment
-	err   error
+	saved        *entity.CompanyEnrichment
+	result       *entity.CompanyEnrichment
+	err          error
+	fetchErr     error
 }
 
 func (s *enrichmentRepoStub) List(ctx context.Context, filter dto.ListFilter) ([]entity.Company, error) {
@@ -39,6 +42,13 @@ func (s *enrichmentRepoStub) UpsertEnrichment(ctx context.Context, enrichment *e
 	}
 	s.saved = enrichment
 	return nil
+}
+
+func (s *enrichmentRepoStub) GetEnrichment(ctx context.Context, companyID uuid.UUID) (*entity.CompanyEnrichment, error) {
+	if s.fetchErr != nil {
+		return nil, s.fetchErr
+	}
+	return s.result, nil
 }
 
 func TestEnrichHandler_SaveResult_Success(t *testing.T) {
@@ -129,5 +139,96 @@ func TestEnrichHandler_SaveResult_ServiceErrors(t *testing.T) {
 	}
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500 when service fails, got %d", rec.Code)
+	}
+}
+
+func TestEnrichHandler_GetResult_Success(t *testing.T) {
+	repo := &enrichmentRepoStub{
+		result: &entity.CompanyEnrichment{CompanyID: uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")},
+	}
+	handler := NewEnrichHandler(service.NewCompaniesService(repo))
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/enrich-result/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("company_id")
+	c.SetParamValues("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+
+	if err := handler.GetResult(c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestEnrichHandler_GetResult_MissingCompanyID(t *testing.T) {
+	handler := NewEnrichHandler(service.NewCompaniesService(&enrichmentRepoStub{}))
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/enrich-result/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := handler.GetResult(c); err != nil {
+		t.Fatalf("handler should write response: %v", err)
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestEnrichHandler_GetResult_InvalidCompanyID(t *testing.T) {
+	handler := NewEnrichHandler(service.NewCompaniesService(&enrichmentRepoStub{}))
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/enrich-result/not-a-uuid", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("company_id")
+	c.SetParamValues("not-a-uuid")
+
+	if err := handler.GetResult(c); err != nil {
+		t.Fatalf("handler should write response: %v", err)
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestEnrichHandler_GetResult_NotFound(t *testing.T) {
+	repo := &enrichmentRepoStub{fetchErr: repository.ErrEnrichmentNotFound}
+	handler := NewEnrichHandler(service.NewCompaniesService(repo))
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/enrich-result/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("company_id")
+	c.SetParamValues("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+
+	if err := handler.GetResult(c); err != nil {
+		t.Fatalf("handler should write response: %v", err)
+	}
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestEnrichHandler_GetResult_ServerError(t *testing.T) {
+	repo := &enrichmentRepoStub{fetchErr: errors.New("boom")}
+	handler := NewEnrichHandler(service.NewCompaniesService(repo))
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/enrich-result/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("company_id")
+	c.SetParamValues("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+
+	if err := handler.GetResult(c); err != nil {
+		t.Fatalf("handler should write response: %v", err)
+	}
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", rec.Code)
 	}
 }

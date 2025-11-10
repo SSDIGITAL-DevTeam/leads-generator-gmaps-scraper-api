@@ -41,3 +41,25 @@ func (h *EnrichHandler) SaveResult(c echo.Context) error {
 
 	return Success(c, http.StatusOK, "enrichment stored", map[string]any{"company_id": payload.CompanyID})
 }
+
+// GetResult retrieves the enrichment payload for a company.
+func (h *EnrichHandler) GetResult(c echo.Context) error {
+	companyID := c.Param("company_id")
+	if companyID == "" {
+		return Error(c, http.StatusBadRequest, "company_id is required")
+	}
+
+	result, err := h.companiesService.GetEnrichment(c.Request().Context(), companyID)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrInvalidCompanyID):
+			return Error(c, http.StatusBadRequest, "invalid company_id")
+		case errors.Is(err, service.ErrEnrichmentNotFound):
+			return Error(c, http.StatusNotFound, "enrichment not found")
+		default:
+			return Error(c, http.StatusInternalServerError, "failed to fetch enrichment")
+		}
+	}
+
+	return Success(c, http.StatusOK, "ok", result)
+}
