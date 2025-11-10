@@ -43,6 +43,10 @@ def get_connection():
 
 
 def _prepare_params(row: Dict[str, Any]) -> Dict[str, Any]:
+    scrape_run_id = row.get("scrape_run_id")
+    if scrape_run_id is not None:
+        scrape_run_id = str(scrape_run_id)
+
     return {
         "place_id": row.get("place_id"),
         "company": row.get("company"),
@@ -57,7 +61,7 @@ def _prepare_params(row: Dict[str, Any]) -> Dict[str, Any]:
         "lng": row.get("lng"),
         "lat": row.get("lat"),
         "raw": extras.Json(row.get("raw") or {}),
-        "scrape_run_id": row.get("scrape_run_id"),
+        "scrape_run_id": scrape_run_id,
         "scraped_at": row.get("scraped_at"),
     }
 
