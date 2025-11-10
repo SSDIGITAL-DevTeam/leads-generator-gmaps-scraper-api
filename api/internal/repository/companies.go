@@ -271,11 +271,6 @@ func (r *PGXCompaniesRepository) List(ctx context.Context, filter dto.ListFilter
 		args = append(args, filter.Country)
 		idx++
 	}
-	if filter.ScrapeRunID != nil {
-		clauses = append(clauses, fmt.Sprintf("scrape_run_id = $%d", idx))
-		args = append(args, *filter.ScrapeRunID)
-		idx++
-	}
 	if filter.MinRating != nil {
 		clauses = append(clauses, fmt.Sprintf("rating >= $%d", idx))
 		args = append(args, *filter.MinRating)
@@ -328,6 +323,11 @@ func (r *PGXCompaniesRepository) List(ctx context.Context, filter dto.ListFilter
 		} else {
 			filter.LatestRunOnly = false
 		}
+	}
+	if filter.ScrapeRunID != nil {
+		clauses = append(clauses, fmt.Sprintf("scrape_run_id = $%d", idx))
+		args = append(args, *filter.ScrapeRunID)
+		idx++
 	}
 	if filter.UpdatedSince != nil {
 		clauses = append(clauses, fmt.Sprintf("updated_at >= $%d", idx))

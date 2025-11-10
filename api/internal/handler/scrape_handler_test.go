@@ -20,14 +20,15 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
-func newTestScrapeHandler(rt roundTripFunc, baseURL string) *ScrapeHandler {
+func newTestScrapeHandler(t *testing.T, rt roundTripFunc, baseURL string) *ScrapeHandler {
+	t.Helper()
 	client := &http.Client{Transport: rt}
 	return NewScrapeHandler(client, baseURL)
 }
 
 func TestScrapeHandler_ValidationErrors(t *testing.T) {
 	e := echo.New()
-	handler := newTestScrapeHandler(func(req *http.Request) (*http.Response, error) {
+	handler := newTestScrapeHandler(t, func(req *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":{"status":"queued"}}`))}, nil
 	}, "http://worker")
 
@@ -70,19 +71,15 @@ func TestScrapeHandler_ValidationErrors(t *testing.T) {
 	})
 
 	t.Run("worker base url missing", func(t *testing.T) {
-		body := `{"type_business":"plumber","city":"Gotham","country":"USA"}`
-		req := httptest.NewRequest(http.MethodPost, "/scrape", strings.NewReader(body))
-		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
+		defer func() {
+			if r := recover(); r == nil {
+				t.Fatalf("expected panic when worker base URL missing")
+			}
+		}()
 
-		handler := newTestScrapeHandler(func(req *http.Request) (*http.Response, error) {
+		_ = newTestScrapeHandler(t, func(req *http.Request) (*http.Response, error) {
 			return nil, nil
 		}, "")
-		_ = handler.Enqueue(c)
-		if rec.Code != http.StatusServiceUnavailable {
-			t.Fatalf("expected 503 when base url missing, got %d", rec.Code)
-		}
 	})
 }
 
@@ -96,7 +93,7 @@ func TestScrapeHandler_WorkerInteraction(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		handler := newTestScrapeHandler(func(req *http.Request) (*http.Response, error) {
+		handler := newTestScrapeHandler(t, func(req *http.Request) (*http.Response, error) {
 			return nil, errors.New("network down")
 		}, "http://worker")
 
@@ -115,7 +112,7 @@ func TestScrapeHandler_WorkerInteraction(t *testing.T) {
 		c.Set(middlewarepkg.ContextKeyRequestID, "req-123")
 
 		var capturedHeader string
-		handler := newTestScrapeHandler(func(req *http.Request) (*http.Response, error) {
+		handler := newTestScrapeHandler(t, func(req *http.Request) (*http.Response, error) {
 			capturedHeader = req.Header.Get("X-Request-ID")
 			return &http.Response{
 				StatusCode: http.StatusBadRequest,
@@ -139,7 +136,7 @@ func TestScrapeHandler_WorkerInteraction(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		handler := newTestScrapeHandler(func(req *http.Request) (*http.Response, error) {
+		handler := newTestScrapeHandler(t, func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Body:       io.NopCloser(strings.NewReader(`{}`)),
@@ -159,7 +156,7 @@ func TestScrapeHandler_WorkerInteraction(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		handler := newTestScrapeHandler(func(req *http.Request) (*http.Response, error) {
+		handler := newTestScrapeHandler(t, func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Body:       io.NopCloser(strings.NewReader(`{"data":{"status":"queued"}}`)),
