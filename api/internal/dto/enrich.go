@@ -12,3 +12,9 @@ type EnrichResultRequest struct {
 	Website        string              `json:"website"`
 	PagesCrawled   int                 `json:"pages_crawled"`
 }
+
+// EnrichJobRequest represents a request to trigger enrichment on the worker.
+type EnrichJobRequest struct {
+	CompanyID string `json:"company_id"`
+	Website   string `json:"website"`
+}

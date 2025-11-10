@@ -19,6 +19,7 @@ type Handlers struct {
 	AdminUpload *handler.AdminUploadHandler
 	Scrape      *handler.ScrapeHandler
 	Enrich      *handler.EnrichHandler
+	EnrichJob   *handler.EnrichWorkerHandler
 }
 
 // Register wires all HTTP routes for the API.
@@ -48,4 +49,7 @@ func Register(e *echo.Echo, cfg *config.Config, jwtManager *auth.JWTManager, han
 	admin.DELETE("/users/:id", handlers.Users.Delete)
 
 	secured.POST("/scrape", handlers.Scrape.Enqueue, middlewarepkg.ScrapeRateLimiter(cfg.RateLimitScrape))
+	if handlers.EnrichJob != nil {
+		secured.POST("/enrich", handlers.EnrichJob.Enqueue, middlewarepkg.ScrapeRateLimiter(cfg.RateLimitScrape))
+	}
 }
