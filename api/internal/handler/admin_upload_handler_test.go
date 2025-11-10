@@ -35,70 +35,81 @@ func (s *stubCompaniesRepository) Upsert(ctx context.Context, company *entity.Co
 	return nil
 }
 
+func (s *stubCompaniesRepository) UpsertEnrichment(ctx context.Context, enrichment *entity.CompanyEnrichment) error {
+	return nil
+}
+
 func newAdminUploadHandler(repo repository.CompaniesRepository) *AdminUploadHandler {
 	service := service.NewCompaniesService(repo)
 	return NewAdminUploadHandler(service)
 }
 
-func TestAdminUploadHandler_MissingFile(t *testing.T) {
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/admin/upload-csv", nil)
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-
-	handler := newAdminUploadHandler(&stubCompaniesRepository{})
-	_ = handler.UploadCSV(c)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", rec.Code)
-	}
-}
-
-func TestAdminUploadHandler_InvalidCSV(t *testing.T) {
-	e := echo.New()
-	req, rec := multipartRequest(t, "file", "test.csv", "company,address\nAcme,Main St\n")
-	c := e.NewContext(req, rec)
-
-	handler := newAdminUploadHandler(&stubCompaniesRepository{})
-	_ = handler.UploadCSV(c)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for invalid csv, got %d", rec.Code)
-	}
-}
-
-func TestAdminUploadHandler_RepositoryError(t *testing.T) {
-	e := echo.New()
-	req, rec := multipartRequest(t, "file", "test.csv", validCSV())
-	c := e.NewContext(req, rec)
-
-	handler := newAdminUploadHandler(&stubCompaniesRepository{
-		bulk: func(ctx context.Context, records []repository.BulkUpsertCompanyInput) (repository.BulkUpsertResult, error) {
-			return repository.BulkUpsertResult{}, context.DeadlineExceeded
+func TestAdminUploadHandler_UploadCSV(t *testing.T) {
+	tests := []struct {
+		name       string
+		request    func(t *testing.T) (*http.Request, *httptest.ResponseRecorder)
+		repo       repository.CompaniesRepository
+		wantCode   int
+	}{
+		{
+			name: "missing file",
+			request: func(t *testing.T) (*http.Request, *httptest.ResponseRecorder) {
+				req := httptest.NewRequest(http.MethodPost, "/admin/upload-csv", nil)
+				rec := httptest.NewRecorder()
+				return req, rec
+			},
+			repo:     &stubCompaniesRepository{},
+			wantCode: http.StatusBadRequest,
 		},
-	})
-
-	_ = handler.UploadCSV(c)
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", rec.Code)
+		{
+			name: "invalid csv",
+			request: func(t *testing.T) (*http.Request, *httptest.ResponseRecorder) {
+				return multipartRequest(t, "file", "test.csv", "company,address\nAcme,Main St\n")
+			},
+			repo:     &stubCompaniesRepository{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "repository error",
+			request: func(t *testing.T) (*http.Request, *httptest.ResponseRecorder) {
+				return multipartRequest(t, "file", "test.csv", validCSV())
+			},
+			repo: &stubCompaniesRepository{
+				bulk: func(ctx context.Context, records []repository.BulkUpsertCompanyInput) (repository.BulkUpsertResult, error) {
+					return repository.BulkUpsertResult{}, context.DeadlineExceeded
+				},
+			},
+			wantCode: http.StatusInternalServerError,
+		},
+		{
+			name: "success",
+			request: func(t *testing.T) (*http.Request, *httptest.ResponseRecorder) {
+				return multipartRequest(t, "file", "test.csv", validCSV())
+			},
+			repo: &stubCompaniesRepository{
+				bulk: func(ctx context.Context, records []repository.BulkUpsertCompanyInput) (repository.BulkUpsertResult, error) {
+					if len(records) != 1 {
+						t.Fatalf("expected 1 record, got %d", len(records))
+					}
+					return repository.BulkUpsertResult{Inserted: 1, Total: 1}, nil
+				},
+			},
+			wantCode: http.StatusOK,
+		},
 	}
-}
 
-func TestAdminUploadHandler_Success(t *testing.T) {
-	e := echo.New()
-	req, rec := multipartRequest(t, "file", "test.csv", validCSV())
-	c := e.NewContext(req, rec)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := echo.New()
+			req, rec := tt.request(t)
+			c := e.NewContext(req, rec)
 
-	handler := newAdminUploadHandler(&stubCompaniesRepository{
-		bulk: func(ctx context.Context, records []repository.BulkUpsertCompanyInput) (repository.BulkUpsertResult, error) {
-			if len(records) != 1 {
-				t.Fatalf("expected 1 record, got %d", len(records))
+			handler := newAdminUploadHandler(tt.repo)
+			_ = handler.UploadCSV(c)
+			if rec.Code != tt.wantCode {
+				t.Fatalf("expected status %d, got %d", tt.wantCode, rec.Code)
 			}
-			return repository.BulkUpsertResult{Inserted: 1, Total: 1}, nil
-		},
-	})
-
-	_ = handler.UploadCSV(c)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
+		})
 	}
 }
 

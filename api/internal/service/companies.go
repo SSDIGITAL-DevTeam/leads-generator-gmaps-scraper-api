@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/octobees/leads-generator/api/internal/dto"
 	"github.com/octobees/leads-generator/api/internal/entity"
 	"github.com/octobees/leads-generator/api/internal/repository"
@@ -18,6 +20,9 @@ import (
 type CompaniesService struct {
 	repo repository.CompaniesRepository
 }
+
+// ErrInvalidCompanyID is returned when the provided company identifier cannot be parsed as UUID.
+var ErrInvalidCompanyID = errors.New("invalid company_id")
 
 // CSVValidationError indicates that the provided CSV payload is invalid.
 type CSVValidationError struct {
@@ -135,6 +140,27 @@ func (s *CompaniesService) UpsertCompany(ctx context.Context, company *entity.Co
 	return s.repo.Upsert(ctx, company)
 }
 
+// SaveEnrichment persists enrichment metadata for a company.
+func (s *CompaniesService) SaveEnrichment(ctx context.Context, payload dto.EnrichResultRequest) error {
+	companyID, err := uuid.Parse(strings.TrimSpace(payload.CompanyID))
+	if err != nil {
+		return ErrInvalidCompanyID
+	}
+
+	enrichment := &entity.CompanyEnrichment{
+		CompanyID:      companyID,
+		Emails:         normalizeStringSlice(payload.Emails, strings.ToLower),
+		Phones:         normalizeStringSlice(payload.Phones, nil),
+		Socials:        normalizeSocialLinks(payload.Socials),
+		Address:        trimPointer(payload.Address),
+		ContactFormURL: trimPointer(payload.ContactFormURL),
+		AboutSummary:   trimPointer(payload.AboutSummary),
+		Metadata:       buildEnrichmentMetadata(payload),
+	}
+
+	return s.repo.UpsertEnrichment(ctx, enrichment)
+}
+
 var requiredCSVHeaders = []string{"company", "address", "phone", "website", "rating", "reviews", "type_business", "city", "country"}
 
 func buildHeaderIndex(header []string) (map[string]int, error) {
@@ -185,4 +211,78 @@ func normalizeString(value string) *string {
 		return nil
 	}
 	return &value
+}
+
+func normalizeStringSlice(values []string, transform func(string) string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		normalized := trimmed
+		if transform != nil {
+			normalized = transform(trimmed)
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func normalizeSocialLinks(values map[string][]string) map[string][]string {
+	if len(values) == 0 {
+		return nil
+	}
+	normalized := make(map[string][]string, len(values))
+	for platform, links := range values {
+		key := strings.TrimSpace(strings.ToLower(platform))
+		if key == "" {
+			continue
+		}
+		cleanLinks := normalizeStringSlice(links, nil)
+		if len(cleanLinks) == 0 {
+			continue
+		}
+		normalized[key] = cleanLinks
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
+}
+
+func trimPointer(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+func buildEnrichmentMetadata(payload dto.EnrichResultRequest) map[string]any {
+	meta := make(map[string]any)
+	if website := strings.TrimSpace(payload.Website); website != "" {
+		meta["website"] = website
+	}
+	if payload.PagesCrawled > 0 {
+		meta["pages_crawled"] = payload.PagesCrawled
+	}
+	if len(meta) == 0 {
+		return nil
+	}
+	return meta
 }

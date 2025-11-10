@@ -18,6 +18,7 @@ type Handlers struct {
 	Companies   *handler.CompaniesHandler
 	AdminUpload *handler.AdminUploadHandler
 	Scrape      *handler.ScrapeHandler
+	Enrich      *handler.EnrichHandler
 }
 
 // Register wires all HTTP routes for the API.
@@ -29,6 +30,10 @@ func Register(e *echo.Echo, cfg *config.Config, jwtManager *auth.JWTManager, han
 	e.POST("/auth/register", handlers.Auth.Register)
 	e.POST("/auth/login", handlers.Auth.Login)
 	e.GET("/companies", handlers.Companies.List)
+
+	if handlers.Enrich != nil {
+		e.POST("/enrich-result", handlers.Enrich.SaveResult)
+	}
 
 	secured := e.Group("")
 	secured.Use(middlewarepkg.JWT(jwtManager))

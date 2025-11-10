@@ -10,6 +10,7 @@ from typing import Any, Dict
 from flask import Flask, jsonify, request
 
 from src.core.config import get_settings
+from src.core.site_enricher import SiteEnricher, post_enrich_result
 from src.jobs.run_query import run_query_job
 
 # ---------- Logging ----------
@@ -97,6 +98,34 @@ def enqueue_scrape() -> Any:
 
     # 202 Accepted lebih tepat untuk async enqueue
     return jsonify({"data": {"status": "queued"}}), 202
+
+
+@app.post("/enrich")
+def enrich_website() -> Any:
+    """Enrich a website by crawling a limited set of pages for contact data."""
+
+    payload: Dict[str, Any] = request.get_json(silent=True) or {}
+    company_id = payload.get("company_id")
+    website = payload.get("website")
+
+    if not company_id or not website:
+        return jsonify({"error": "company_id and website are required"}), 400
+
+    try:
+        with SiteEnricher(website) as enricher:
+            enrichment = enricher.enrich()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Enrichment failed for %s: %s", website, exc)
+        return jsonify({"error": "enrichment failed"}), 500
+
+    response_payload = {"company_id": company_id, **enrichment}
+
+    # Fire-and-forget callback to the Go API, failures are logged inside helper.
+    post_enrich_result(company_id, enrichment)
+
+    return jsonify({"data": response_payload}), 200
 
 
 # ---------- Internals ----------

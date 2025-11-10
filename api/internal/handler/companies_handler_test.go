@@ -17,8 +17,8 @@ import (
 )
 
 type capturingCompaniesRepo struct {
-	lastFilter dto.ListFilter
-	err        error
+    lastFilter dto.ListFilter
+    err        error
 }
 
 func (c *capturingCompaniesRepo) List(ctx context.Context, filter dto.ListFilter) ([]entity.Company, error) {
@@ -34,7 +34,11 @@ func (c *capturingCompaniesRepo) BulkUpsertCompanies(ctx context.Context, record
 }
 
 func (c *capturingCompaniesRepo) Upsert(ctx context.Context, company *entity.Company) error {
-	return nil
+    return nil
+}
+
+func (c *capturingCompaniesRepo) UpsertEnrichment(ctx context.Context, enrichment *entity.CompanyEnrichment) error {
+    return nil
 }
 
 func newCompaniesHandler(repo repository.CompaniesRepository) *CompaniesHandler {

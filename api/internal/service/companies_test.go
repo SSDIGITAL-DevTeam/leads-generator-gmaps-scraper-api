@@ -12,9 +12,10 @@ import (
 )
 
 type mockCompaniesRepository struct {
-	list   func(ctx context.Context, filter dto.ListFilter) ([]entity.Company, error)
-	bulk   func(ctx context.Context, records []repository.BulkUpsertCompanyInput) (repository.BulkUpsertResult, error)
-	upsert func(ctx context.Context, company *entity.Company) error
+    list   func(ctx context.Context, filter dto.ListFilter) ([]entity.Company, error)
+    bulk   func(ctx context.Context, records []repository.BulkUpsertCompanyInput) (repository.BulkUpsertResult, error)
+    upsert func(ctx context.Context, company *entity.Company) error
+    enrich func(ctx context.Context, enrichment *entity.CompanyEnrichment) error
 }
 
 func (m *mockCompaniesRepository) List(ctx context.Context, filter dto.ListFilter) ([]entity.Company, error) {
@@ -32,10 +33,17 @@ func (m *mockCompaniesRepository) BulkUpsertCompanies(ctx context.Context, recor
 }
 
 func (m *mockCompaniesRepository) Upsert(ctx context.Context, company *entity.Company) error {
-	if m.upsert != nil {
-		return m.upsert(ctx, company)
-	}
-	return errors.New("upsert not implemented")
+    if m.upsert != nil {
+        return m.upsert(ctx, company)
+    }
+    return errors.New("upsert not implemented")
+}
+
+func (m *mockCompaniesRepository) UpsertEnrichment(ctx context.Context, enrichment *entity.CompanyEnrichment) error {
+    if m.enrich != nil {
+        return m.enrich(ctx, enrichment)
+    }
+    return errors.New("enrich not implemented")
 }
 
 func TestCompaniesService_ListCompanies_AppliesDefaults(t *testing.T) {
@@ -162,6 +170,62 @@ func TestCompaniesService_UpsertCompany(t *testing.T) {
 	}
 }
 
+func TestCompaniesService_SaveEnrichment_Success(t *testing.T) {
+	var captured *entity.CompanyEnrichment
+	repo := &mockCompaniesRepository{
+		enrich: func(ctx context.Context, enrichment *entity.CompanyEnrichment) error {
+			dup := *enrichment
+			captured = &dup
+			return nil
+		},
+	}
+
+	svc := NewCompaniesService(repo)
+	address := " 123 Main St "
+	contact := "https://acme.com/contact"
+	about := " We build things "
+	payload := dto.EnrichResultRequest{
+		CompanyID:      "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+		Emails:         []string{"INFO@EXAMPLE.COM", "info@example.com", ""},
+		Phones:         []string{" +1 234 567 890 ", ""},
+		Socials:        map[string][]string{"LinkedIn": {" https://linkedin.com/company/acme "}},
+		Address:        &address,
+		ContactFormURL: &contact,
+		AboutSummary:   &about,
+		Website:        "https://acme.com",
+		PagesCrawled:   2,
+	}
+
+	if err := svc.SaveEnrichment(context.Background(), payload); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if captured == nil {
+		t.Fatalf("expected enrichment to be saved")
+	}
+	if captured.CompanyID.String() != payload.CompanyID {
+		t.Fatalf("expected parsed company id, got %s", captured.CompanyID)
+	}
+	if len(captured.Emails) != 1 || captured.Emails[0] != "info@example.com" {
+		t.Fatalf("expected normalized emails, got %+v", captured.Emails)
+	}
+	if len(captured.Phones) != 1 || captured.Phones[0] != "+1 234 567 890" {
+		t.Fatalf("expected trimmed phone numbers, got %+v", captured.Phones)
+	}
+	if captured.Address == nil || *captured.Address != "123 Main St" {
+		t.Fatalf("expected trimmed address, got %+v", captured.Address)
+	}
+	if captured.Metadata["website"] != "https://acme.com" || captured.Metadata["pages_crawled"] != 2 {
+		t.Fatalf("expected metadata stored, got %+v", captured.Metadata)
+	}
+}
+
+func TestCompaniesService_SaveEnrichment_InvalidCompanyID(t *testing.T) {
+	svc := NewCompaniesService(&mockCompaniesRepository{})
+	if err := svc.SaveEnrichment(context.Background(), dto.EnrichResultRequest{CompanyID: "not-a-uuid"}); !errors.Is(err, ErrInvalidCompanyID) {
+		t.Fatalf("expected ErrInvalidCompanyID, got %v", err)
+	}
+}
+
 func TestBuildHeaderIndex(t *testing.T) {
 	header := []string{"Company", "Address", "Phone", "Website", "Rating", "Reviews", "Type_Business", "City", "Country"}
 	index, err := buildHeaderIndex(header)
@@ -212,5 +276,58 @@ func TestNormalizeString(t *testing.T) {
 	}
 	if got := normalizeString("   "); got != nil {
 		t.Fatalf("expected nil for whitespace string")
+	}
+}
+
+func TestNormalizeStringSlice(t *testing.T) {
+	values := []string{"  A  ", "a", "", "B"}
+	result := normalizeStringSlice(values, strings.ToLower)
+	if len(result) != 2 || result[0] != "a" || result[1] != "b" {
+		t.Fatalf("unexpected normalization result: %+v", result)
+	}
+	if normalizeStringSlice(nil, nil) != nil {
+		t.Fatalf("expected nil for nil slice input")
+	}
+	if res := normalizeStringSlice([]string{"   "}, nil); res != nil {
+		t.Fatalf("expected nil for blank-only slice, got %+v", res)
+	}
+}
+
+func TestNormalizeSocialLinks(t *testing.T) {
+	socials := map[string][]string{"LinkedIn": {" https://linkedin.com/company/acme "}, "": {"ignored"}}
+	result := normalizeSocialLinks(socials)
+	if len(result) != 1 {
+		t.Fatalf("expected single platform, got %+v", result)
+	}
+	links, ok := result["linkedin"]
+	if !ok || len(links) != 1 || links[0] != "https://linkedin.com/company/acme" {
+		t.Fatalf("unexpected linkedin links: %+v", result)
+	}
+	if normalizeSocialLinks(nil) != nil {
+		t.Fatalf("expected nil result for nil socials map")
+	}
+}
+
+func TestTrimPointer(t *testing.T) {
+	value := "  data  "
+	if trimmed := trimPointer(&value); trimmed == nil || *trimmed != "data" {
+		t.Fatalf("expected trimmed pointer, got %+v", trimmed)
+	}
+	empty := "   "
+	if trimmed := trimPointer(&empty); trimmed != nil {
+		t.Fatalf("expected nil for whitespace pointer input")
+	}
+	if trimmed := trimPointer(nil); trimmed != nil {
+		t.Fatalf("expected nil for nil pointer")
+	}
+}
+
+func TestBuildEnrichmentMetadata(t *testing.T) {
+	meta := buildEnrichmentMetadata(dto.EnrichResultRequest{Website: " https://acme.com ", PagesCrawled: 3})
+	if len(meta) != 2 || meta["website"] != "https://acme.com" || meta["pages_crawled"] != 3 {
+		t.Fatalf("unexpected metadata: %+v", meta)
+	}
+	if buildEnrichmentMetadata(dto.EnrichResultRequest{}) != nil {
+		t.Fatalf("expected nil metadata for empty payload")
 	}
 }

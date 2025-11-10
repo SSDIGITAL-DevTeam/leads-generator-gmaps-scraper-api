@@ -20,6 +20,7 @@ type CompaniesRepository interface {
 	Upsert(ctx context.Context, company *entity.Company) error
 	List(ctx context.Context, filter dto.ListFilter) ([]entity.Company, error)
 	BulkUpsertCompanies(ctx context.Context, records []BulkUpsertCompanyInput) (BulkUpsertResult, error)
+	UpsertEnrichment(ctx context.Context, enrichment *entity.CompanyEnrichment) error
 }
 
 // BulkUpsertCompanyInput represents the minimal fields required for CSV ingestion.
@@ -370,6 +371,77 @@ func (r *PGXCompaniesRepository) List(ctx context.Context, filter dto.ListFilter
 	defer rows.Close()
 
 	return scanCompanies(rows)
+}
+
+// UpsertEnrichment stores or updates contact enrichment metadata for a company.
+func (r *PGXCompaniesRepository) UpsertEnrichment(ctx context.Context, enrichment *entity.CompanyEnrichment) error {
+	if enrichment == nil {
+		return fmt.Errorf("enrichment payload is nil")
+	}
+
+	socials := enrichment.Socials
+	if socials == nil {
+		socials = map[string][]string{}
+	}
+	socialsJSON, err := json.Marshal(socials)
+	if err != nil {
+		return fmt.Errorf("marshal socials: %w", err)
+	}
+
+	metadata := enrichment.Metadata
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("marshal metadata: %w", err)
+	}
+
+	query := `
+		INSERT INTO company_enrichments (
+			company_id,
+			emails,
+			phones,
+			socials,
+			address,
+			contact_form_url,
+			about_summary,
+			metadata,
+			updated_at
+		) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8::jsonb, NOW())
+		ON CONFLICT (company_id) DO UPDATE SET
+			emails = EXCLUDED.emails,
+			phones = EXCLUDED.phones,
+			socials = EXCLUDED.socials,
+			address = EXCLUDED.address,
+			contact_form_url = EXCLUDED.contact_form_url,
+			about_summary = EXCLUDED.about_summary,
+			metadata = EXCLUDED.metadata,
+			updated_at = NOW();
+	`
+
+	_, err = r.pool.Exec(ctx, query,
+		enrichment.CompanyID,
+		stringSliceOrEmpty(enrichment.Emails),
+		stringSliceOrEmpty(enrichment.Phones),
+		string(socialsJSON),
+		enrichment.Address,
+		enrichment.ContactFormURL,
+		enrichment.AboutSummary,
+		string(metadataJSON),
+	)
+	if err != nil {
+		return fmt.Errorf("upsert enrichment: %w", err)
+	}
+
+	return nil
+}
+
+func stringSliceOrEmpty(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }
 
 func scanCompanies(rows pgx.Rows) ([]entity.Company, error) {

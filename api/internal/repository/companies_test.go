@@ -10,6 +10,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/octobees/leads-generator/api/internal/entity"
 )
 
 type stubCompanyRows struct {
@@ -143,5 +145,58 @@ func TestHelperConversions(t *testing.T) {
 	i := 42
 	if intOrNil(&i) != i {
 		t.Fatalf("expected int value")
+	}
+
+	if res := stringSliceOrEmpty(nil); len(res) != 0 {
+		t.Fatalf("expected empty slice when input nil")
+	}
+	if res := stringSliceOrEmpty([]string{"a"}); len(res) != 1 || res[0] != "a" {
+		t.Fatalf("expected matching slice, got %+v", res)
+	}
+}
+
+func TestPGXCompaniesRepository_UpsertEnrichment_Validation(t *testing.T) {
+	repo := &PGXCompaniesRepository{}
+	if err := repo.UpsertEnrichment(context.Background(), nil); err == nil {
+		t.Fatalf("expected error for nil enrichment")
+	}
+}
+
+func TestPGXCompaniesRepository_UpsertEnrichment_Success(t *testing.T) {
+	companyID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	address := "Main St"
+	contact := "https://acme.com/contact"
+	enrichment := &entity.CompanyEnrichment{
+		CompanyID:      companyID,
+		Emails:         []string{"info@example.com"},
+		Phones:         []string{"+123"},
+		Socials:        map[string][]string{"linkedin": {"https://linkedin.com/company/acme"}},
+		Address:        &address,
+		ContactFormURL: &contact,
+		Metadata:       map[string]any{"website": "https://acme.com"},
+	}
+
+	called := false
+	repo := &PGXCompaniesRepository{pool: &stubPool{
+		execFunc: func(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+			called = true
+			if len(args) != 8 {
+				t.Fatalf("expected 8 args, got %d", len(args))
+			}
+			if args[0] != companyID {
+				t.Fatalf("expected company id arg, got %v", args[0])
+			}
+			if addr, _ := args[4].(*string); addr == nil || *addr != "Main St" {
+				t.Fatalf("expected address arg")
+			}
+			return pgconn.CommandTag{}, nil
+		},
+	}}
+
+	if err := repo.UpsertEnrichment(context.Background(), enrichment); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Fatalf("expected exec to be called")
 	}
 }

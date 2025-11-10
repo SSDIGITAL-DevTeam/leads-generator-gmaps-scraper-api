@@ -52,6 +52,7 @@ func main() {
 	userAdminHandler := handler.NewUserAdminHandler(userService)
 	companiesHandler := handler.NewCompaniesHandler(companiesService)
 	adminUploadHandler := handler.NewAdminUploadHandler(companiesService)
+	enrichHandler := handler.NewEnrichHandler(companiesService)
 
 	// ⚡ scrapeHandler menggunakan ID-token client otomatis
 	scrapeHandler := handler.NewScrapeHandler(nil, cfg.WorkerBaseURL)
@@ -70,6 +71,7 @@ func main() {
 		Companies:   companiesHandler,
 		AdminUpload: adminUploadHandler,
 		Scrape:      scrapeHandler,
+		Enrich:      enrichHandler,
 	})
 
 	serverErr := make(chan error, 1)
