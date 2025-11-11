@@ -53,10 +53,12 @@ func main() {
 	companiesHandler := handler.NewCompaniesHandler(companiesService)
 	adminUploadHandler := handler.NewAdminUploadHandler(companiesService)
 	enrichHandler := handler.NewEnrichHandler(companiesService)
-	enrichJobHandler := handler.NewEnrichWorkerHandler(nil, cfg.WorkerBaseURL)
+	workerClient := handler.NewWorkerClient(nil, cfg.WorkerBaseURL)
+	enrichJobHandler := handler.NewEnrichWorkerHandlerWithWorker(workerClient)
+	promptHandler := handler.NewPromptSearchHandler(workerClient, service.NewPromptService(cfg.PromptCountry))
 
 	// ⚡ scrapeHandler menggunakan ID-token client otomatis
-	scrapeHandler := handler.NewScrapeHandler(nil, cfg.WorkerBaseURL)
+	scrapeHandler := handler.NewScrapeHandlerWithWorker(workerClient)
 
 	e := echo.New()
 	e.HideBanner = true
@@ -74,6 +76,7 @@ func main() {
 		Scrape:      scrapeHandler,
 		Enrich:      enrichHandler,
 		EnrichJob:   enrichJobHandler,
+		Prompt:      promptHandler,
 	})
 
 	serverErr := make(chan error, 1)

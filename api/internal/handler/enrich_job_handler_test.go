@@ -1,29 +1,22 @@
 package handler
 
 import (
-	"errors"
-	"io"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v4"
-
-	middlewarepkg "github.com/octobees/leads-generator/api/internal/middleware"
 )
 
-func newTestEnrichJobHandler(t *testing.T, rt roundTripFunc, baseURL string) *EnrichWorkerHandler {
-	t.Helper()
-	client := &http.Client{Transport: rt}
-	return NewEnrichWorkerHandler(client, baseURL)
+func newEnrichHandlerWithWorker(worker WorkerPoster) *EnrichWorkerHandler {
+	return &EnrichWorkerHandler{worker: worker}
 }
 
 func TestEnrichWorkerHandler_Validation(t *testing.T) {
 	e := echo.New()
-	handler := newTestEnrichJobHandler(t, func(req *http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":{"status":"queued"}}`))}, nil
-	}, "http://worker")
+	handler := newEnrichHandlerWithWorker(&workerStub{data: map[string]any{"status": "queued"}})
 
 	t.Run("invalid json", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/enrich", strings.NewReader("{"))
@@ -70,9 +63,7 @@ func TestEnrichWorkerHandler_WorkerResponses(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		handler := newTestEnrichJobHandler(t, func(req *http.Request) (*http.Response, error) {
-			return nil, errors.New("network")
-		}, "http://worker")
+		handler := newEnrichHandlerWithWorker(&workerStub{err: fmt.Errorf("network")})
 
 		_ = handler.Enqueue(c)
 		if rec.Code != http.StatusBadGateway {
@@ -85,20 +76,12 @@ func TestEnrichWorkerHandler_WorkerResponses(t *testing.T) {
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
-		c.Set(middlewarepkg.ContextKeyRequestID, "req-1")
 
-		var captured string
-		handler := newTestEnrichJobHandler(t, func(req *http.Request) (*http.Response, error) {
-			captured = req.Header.Get("X-Request-ID")
-			return &http.Response{StatusCode: http.StatusBadRequest, Body: io.NopCloser(strings.NewReader(`{"error":"boom"}`))}, nil
-		}, "http://worker")
+		handler := newEnrichHandlerWithWorker(&workerStub{err: fmt.Errorf("boom")})
 
 		_ = handler.Enqueue(c)
 		if rec.Code != http.StatusBadGateway {
 			t.Fatalf("expected 502, got %d", rec.Code)
-		}
-		if captured != "req-1" {
-			t.Fatalf("expected request id propagation")
 		}
 	})
 
@@ -108,9 +91,7 @@ func TestEnrichWorkerHandler_WorkerResponses(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		handler := newTestEnrichJobHandler(t, func(req *http.Request) (*http.Response, error) {
-			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":{"status":"queued"}}`))}, nil
-		}, "http://worker")
+		handler := newEnrichHandlerWithWorker(&workerStub{data: map[string]any{"status": "queued"}})
 
 		_ = handler.Enqueue(c)
 		if rec.Code != http.StatusOK {

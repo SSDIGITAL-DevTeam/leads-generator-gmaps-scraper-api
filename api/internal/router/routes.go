@@ -20,6 +20,7 @@ type Handlers struct {
 	Scrape      *handler.ScrapeHandler
 	Enrich      *handler.EnrichHandler
 	EnrichJob   *handler.EnrichWorkerHandler
+	Prompt      *handler.PromptSearchHandler
 }
 
 // Register wires all HTTP routes for the API.
@@ -51,5 +52,8 @@ func Register(e *echo.Echo, cfg *config.Config, jwtManager *auth.JWTManager, han
 	secured.POST("/scrape", handlers.Scrape.Enqueue, middlewarepkg.ScrapeRateLimiter(cfg.RateLimitScrape))
 	if handlers.EnrichJob != nil {
 		secured.POST("/enrich", handlers.EnrichJob.Enqueue, middlewarepkg.ScrapeRateLimiter(cfg.RateLimitScrape))
+	}
+	if handlers.Prompt != nil {
+		secured.POST("/prompt-search", handlers.Prompt.Enqueue, middlewarepkg.ScrapeRateLimiter(cfg.RateLimitScrape))
 	}
 }

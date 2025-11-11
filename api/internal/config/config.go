@@ -20,6 +20,7 @@ type Config struct {
 	JWTSecret       string
 	Port            string
 	WorkerBaseURL   string
+	PromptCountry   string
 	RateLimitScrape RateLimitConfig
 	TokenTTL        time.Duration
 }
@@ -31,6 +32,7 @@ func Load() (*Config, error) {
 		JWTSecret:     getEnv("JWT_SECRET", "dev-secret"),
 		Port:          getEnv("PORT", "8080"),
 		WorkerBaseURL: getEnv("WORKER_BASE_URL", "http://worker:9000"),
+		PromptCountry: getEnv("PROMPT_DEFAULT_COUNTRY", "Indonesia"),
 		TokenTTL:      parseDuration(getEnv("JWT_TTL", "24h")),
 	}
 

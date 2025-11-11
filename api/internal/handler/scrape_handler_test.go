@@ -2,35 +2,22 @@ package handler
 
 import (
 	"bytes"
-	"errors"
-	"io"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v4"
-
-	middlewarepkg "github.com/octobees/leads-generator/api/internal/middleware"
 )
 
-type roundTripFunc func(req *http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
-	return f(req)
-}
-
-func newTestScrapeHandler(t *testing.T, rt roundTripFunc, baseURL string) *ScrapeHandler {
-	t.Helper()
-	client := &http.Client{Transport: rt}
-	return NewScrapeHandler(client, baseURL)
+func newTestScrapeHandler(worker WorkerPoster) *ScrapeHandler {
+	return &ScrapeHandler{worker: worker}
 }
 
 func TestScrapeHandler_ValidationErrors(t *testing.T) {
 	e := echo.New()
-	handler := newTestScrapeHandler(t, func(req *http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"data":{"status":"queued"}}`))}, nil
-	}, "http://worker")
+	handler := newTestScrapeHandler(&workerStub{data: map[string]any{"status": "queued"}})
 
 	t.Run("invalid payload", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/scrape", bytes.NewBufferString("{"))
@@ -77,9 +64,7 @@ func TestScrapeHandler_ValidationErrors(t *testing.T) {
 			}
 		}()
 
-		_ = newTestScrapeHandler(t, func(req *http.Request) (*http.Response, error) {
-			return nil, nil
-		}, "")
+		_ = NewScrapeHandler(nil, "")
 	})
 }
 
@@ -93,9 +78,7 @@ func TestScrapeHandler_WorkerInteraction(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		handler := newTestScrapeHandler(t, func(req *http.Request) (*http.Response, error) {
-			return nil, errors.New("network down")
-		}, "http://worker")
+		handler := newTestScrapeHandler(&workerStub{err: fmt.Errorf("network down")})
 
 		_ = handler.Enqueue(c)
 		if rec.Code != http.StatusBadGateway {
@@ -109,23 +92,11 @@ func TestScrapeHandler_WorkerInteraction(t *testing.T) {
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
-		c.Set(middlewarepkg.ContextKeyRequestID, "req-123")
-
-		var capturedHeader string
-		handler := newTestScrapeHandler(t, func(req *http.Request) (*http.Response, error) {
-			capturedHeader = req.Header.Get("X-Request-ID")
-			return &http.Response{
-				StatusCode: http.StatusBadRequest,
-				Body:       io.NopCloser(strings.NewReader(`{"error":"worker failed"}`)),
-			}, nil
-		}, "http://worker")
+		handler := newTestScrapeHandler(&workerStub{err: fmt.Errorf("worker failed")})
 
 		_ = handler.Enqueue(c)
 		if rec.Code != http.StatusBadGateway {
 			t.Fatalf("expected 502, got %d", rec.Code)
-		}
-		if capturedHeader != "req-123" {
-			t.Fatalf("expected request id propagated, got %q", capturedHeader)
 		}
 	})
 
@@ -136,12 +107,7 @@ func TestScrapeHandler_WorkerInteraction(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		handler := newTestScrapeHandler(t, func(req *http.Request) (*http.Response, error) {
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{}`)),
-			}, nil
-		}, "http://worker")
+		handler := newTestScrapeHandler(&workerStub{data: nil})
 
 		_ = handler.Enqueue(c)
 		if rec.Code != http.StatusOK {
@@ -156,12 +122,7 @@ func TestScrapeHandler_WorkerInteraction(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		handler := newTestScrapeHandler(t, func(req *http.Request) (*http.Response, error) {
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"data":{"status":"queued"}}`)),
-			}, nil
-		}, "http://worker")
+		handler := newTestScrapeHandler(&workerStub{data: map[string]any{"status": "queued"}})
 
 		_ = handler.Enqueue(c)
 		if rec.Code != http.StatusOK {

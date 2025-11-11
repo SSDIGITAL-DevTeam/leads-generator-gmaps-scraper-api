@@ -1,52 +1,31 @@
 package handler
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/labstack/echo/v4"
 
 	"github.com/octobees/leads-generator/api/internal/dto"
 	middleware "github.com/octobees/leads-generator/api/internal/middleware"
-
-	"google.golang.org/api/idtoken"
 )
 
 // ScrapeHandler posts scrape requests to the worker service.
 type ScrapeHandler struct {
-	client        *http.Client
-	workerBaseURL string
+	worker WorkerPoster
 }
 
 // NewScrapeHandler constructs a scrape handler backed by an HTTP client.
 // If `client == nil`, it automatically creates an ID-token client for Cloud Run → Cloud Run calls.
 func NewScrapeHandler(client *http.Client, workerBaseURL string) *ScrapeHandler {
-	if workerBaseURL == "" {
-		panic("workerBaseURL must not be empty")
-	}
+	return &ScrapeHandler{worker: NewWorkerClient(client, workerBaseURL)}
+}
 
-	// Auto-create ID Token Client (secure Cloud Run → Cloud Run call)
-	if client == nil {
-		idc, err := idtoken.NewClient(context.Background(), strings.TrimRight(workerBaseURL, "/"))
-		if err != nil {
-			// fallback untuk dev/local
-			client = &http.Client{Timeout: 10 * time.Second}
-		} else {
-			client = idc
-		}
-	}
-
-	return &ScrapeHandler{
-		client:        client,
-		workerBaseURL: strings.TrimRight(workerBaseURL, "/"),
-	}
+// NewScrapeHandlerWithWorker allows injecting a custom worker client (useful for tests).
+func NewScrapeHandlerWithWorker(worker WorkerPoster) *ScrapeHandler {
+	return &ScrapeHandler{worker: worker}
 }
 
 // Enqueue handles POST /scrape requests and forwards them to the worker.
@@ -91,53 +70,15 @@ func (h *ScrapeHandler) Enqueue(c echo.Context) error {
 		payload["min_rating"] = req.MinRating
 	}
 
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return Error(c, http.StatusInternalServerError, "failed to marshal request")
-	}
-
-	workerURL := h.workerBaseURL + "/scrape"
-
 	ctx := c.Request().Context()
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, workerURL, bytes.NewReader(body))
+	data, err := h.worker.PostJSON(ctx, "/scrape", payload, middleware.RequestIDFromContext(c))
 	if err != nil {
-		return Error(c, http.StatusInternalServerError, "failed to create worker request")
+		return Error(c, http.StatusBadGateway, err.Error())
 	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	if rid := middleware.RequestIDFromContext(c); rid != "" {
-		httpReq.Header.Set("X-Request-ID", rid)
+	if data == nil {
+		data = map[string]any{"status": "queued"}
 	}
-
-	resp, err := h.client.Do(httpReq)
-	if err != nil {
-		return Error(c, http.StatusBadGateway, fmt.Sprintf("worker request failed: %v", err))
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		workerErr := extractWorkerError(resp.Body)
-		return Error(c, http.StatusBadGateway, workerErr)
-	}
-
-	var workerResp struct {
-		Data  map[string]any `json:"data"`
-		Error string         `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&workerResp); err != nil && !errors.Is(err, io.EOF) {
-		return Error(c, http.StatusBadGateway, "could not decode worker response")
-	}
-
-	if workerResp.Error != "" {
-		return Error(c, http.StatusBadGateway, workerResp.Error)
-	}
-
-	if workerResp.Data == nil {
-		workerResp.Data = map[string]any{"status": "queued"}
-	}
-
-	return Success(c, http.StatusOK, "scrape job queued", workerResp.Data)
+	return Success(c, http.StatusOK, "scrape job queued", data)
 }
 
 func extractWorkerError(body io.Reader) string {
