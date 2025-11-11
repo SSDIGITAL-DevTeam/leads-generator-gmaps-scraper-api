@@ -14,6 +14,7 @@ var (
 	locationPattern  = regexp.MustCompile(`(?i)\b(?:di|in)\s+([a-zA-Z\s]+)`)
 	numberPattern    = regexp.MustCompile(`(?i)\b(\d+)\b`)
 	nowebsitePattern = regexp.MustCompile(`(?i)(belum\s+(punya|memiliki)\s+website|tanpa\s+website|without\s+a\s+website)`)
+	intentKeywords   = regexp.MustCompile(`(?i)\b(cari|search|find|scrape)\b`)
 )
 
 // PromptService interprets free-form search prompts.
@@ -45,6 +46,9 @@ func (s *PromptService) Parse(req dto.PromptSearchRequest) (PromptResult, error)
 	if prompt == "" {
 		return PromptResult{}, errors.New("prompt is required")
 	}
+	if !intentKeywords.MatchString(prompt) {
+		return PromptResult{}, errors.New("prompt tidak dikenali. Gunakan kalimat seperti 'cari PT di Jakarta' untuk mencari data kontak")
+	}
 
 	country := strings.TrimSpace(req.Country)
 	if country == "" {
@@ -62,6 +66,12 @@ func (s *PromptService) Parse(req dto.PromptSearchRequest) (PromptResult, error)
 	limit := req.Limit
 	if limit == 0 {
 		limit = extractLimit(prompt)
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 20 {
+		limit = 20
 	}
 	requireNoWebsite := nowebsitePattern.MatchString(prompt)
 

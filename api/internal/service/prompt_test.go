@@ -28,3 +28,11 @@ func TestPromptService_Parse(t *testing.T) {
 		t.Fatalf("expected RequireNoWebsite true")
 	}
 }
+
+func TestPromptService_InvalidPrompt(t *testing.T) {
+	service := NewPromptService("Indonesia")
+	_, err := service.Parse(dto.PromptSearchRequest{Prompt: "tolong buatkan proposal"})
+	if err == nil {
+		t.Fatalf("expected error for unsupported prompt")
+	}
+}
