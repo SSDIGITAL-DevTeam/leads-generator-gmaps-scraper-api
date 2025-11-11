@@ -36,3 +36,20 @@ func TestPromptService_InvalidPrompt(t *testing.T) {
 		t.Fatalf("expected error for unsupported prompt")
 	}
 }
+
+func TestPromptService_EnglishPrompt(t *testing.T) {
+	service := NewPromptService("Indonesia")
+	result, err := service.Parse(dto.PromptSearchRequest{Prompt: "find 5 consulting companies in Jakarta without website"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.City != "Jakarta" {
+		t.Fatalf("expected Jakarta, got %s", result.City)
+	}
+	if result.Limit != 5 {
+		t.Fatalf("expected limit 5, got %d", result.Limit)
+	}
+	if !result.RequireNoWebsite {
+		t.Fatalf("expected RequireNoWebsite true")
+	}
+}

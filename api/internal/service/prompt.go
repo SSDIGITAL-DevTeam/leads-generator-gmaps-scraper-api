@@ -10,11 +10,11 @@ import (
 )
 
 var (
-	stopwordExpr     = regexp.MustCompile(`(?i)\b(cariin|cari|tolong|minta|mohon|mau|aku|saya|butuh|yang|untuk|dong|please)\b`)
-	locationPattern  = regexp.MustCompile(`(?i)\b(?:di|in)\s+([a-zA-Z\s]+)`)
+	stopwordExpr     = regexp.MustCompile(`(?i)\b(cariin|cari|tolong|minta|mohon|mau|aku|saya|butuh|yang|untuk|dong|please|find|search|looking|look|for|i|need|want|get|collect)\b`)
+	locationPattern  = regexp.MustCompile(`(?i)\b(?:di|in|at|around|near)\s+([a-zA-Z\s]+)`)
 	numberPattern    = regexp.MustCompile(`(?i)\b(\d+)\b`)
-	nowebsitePattern = regexp.MustCompile(`(?i)(belum\s+(punya|memiliki)\s+website|tanpa\s+website|without\s+a\s+website)`)
-	intentKeywords   = regexp.MustCompile(`(?i)\b(cari|search|find|scrape)\b`)
+	nowebsitePattern = regexp.MustCompile(`(?i)(belum\s+(punya|memiliki)\s+website|tanpa\s+website|without\s+(a\s+)?website|no\s+website)`)
+	intentKeywords   = regexp.MustCompile(`(?i)\b(cari|search|find|scrape|look|looking|discover)\b`)
 )
 
 // PromptService interprets free-form search prompts.
@@ -131,7 +131,7 @@ func max(a, b float64) float64 {
 	return b
 }
 
-var keywordStops = []string{" yang", " yg", " tanpa", " without", " dengan", " dan"}
+var keywordStops = []string{" yang", " yg", " tanpa", " without", " dengan", " dan", " that", " which", " who", " near", " around", " with", " having"}
 
 func stripTrailingKeywords(value string) string {
 	value = strings.TrimSpace(value)
