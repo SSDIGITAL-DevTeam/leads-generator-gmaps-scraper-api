@@ -16,7 +16,7 @@ type cityAlias struct {
 
 var (
 	stopwordExpr     = regexp.MustCompile(`(?i)\b(cariin|cari|tolong|minta|mohon|mau|aku|saya|butuh|yang|untuk|dong|please|find|search|looking|look|for|i|need|want|get|collect)\b`)
-	locationPattern  = regexp.MustCompile(`(?i)\b(?:di|in|at|around|near)\s+([a-zA-Z\s]+)`)
+	locationPattern  = regexp.MustCompile(`(?i)\b(?:di|in|at|around|near|dekat|sekitar|sekitaran)\s+([a-z0-9\s.,-]+)`)
 	numberPattern    = regexp.MustCompile(`(?i)\b(\d+)\b`)
 	nowebsitePattern = regexp.MustCompile(`(?i)(belum\s+(punya|memiliki)\s+website|tanpa\s+website|without\s+(a\s+)?website|no\s+website)`)
 	intentKeywords   = regexp.MustCompile(`(?i)\b(cari|search|find|scrape|look|looking|discover)\b`)
@@ -119,7 +119,7 @@ func extractCityAndType(prompt string) (string, string) {
 	match := locationPattern.FindStringSubmatch(prompt)
 	city := ""
 	if len(match) > 1 {
-		city = titleCase(stripTrailingKeywords(match[1]))
+		city = deriveCityFromSegment(match[1])
 	}
 
 	lower := strings.ToLower(original)
@@ -219,4 +219,18 @@ func extractLimit(prompt string) int {
 func stripNumbers(value string) string {
 	cleaned := numberPattern.ReplaceAllString(value, " ")
 	return strings.TrimSpace(cleaned)
+}
+
+func deriveCityFromSegment(segment string) string {
+	cleaned := stripTrailingKeywords(segment)
+	if cleaned == "" {
+		return ""
+	}
+	normalized := strings.ToLower(cleaned)
+	for _, alias := range knownCities {
+		if strings.Contains(normalized, alias.match) {
+			return alias.canonical
+		}
+	}
+	return titleCase(cleaned)
 }

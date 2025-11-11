@@ -39,8 +39,8 @@ func TestPromptService_InvalidPrompt(t *testing.T) {
 }
 
 func TestPromptService_EnglishPrompt(t *testing.T) {
-    service := NewPromptService("Indonesia")
-    result, err := service.Parse(dto.PromptSearchRequest{Prompt: "find 5 consulting companies in Jakarta without website"})
+	service := NewPromptService("Indonesia")
+	result, err := service.Parse(dto.PromptSearchRequest{Prompt: "find 5 consulting companies in Jakarta without website"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -66,5 +66,19 @@ func TestPromptService_KnownCityFallback(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(result.TypeBusiness), "toko batik") {
 		t.Fatalf("expected type to include toko batik, got %s", result.TypeBusiness)
+	}
+}
+
+func TestPromptService_SplitsBusinessAndStreetLocation(t *testing.T) {
+	service := NewPromptService("Indonesia")
+	result, err := service.Parse(dto.PromptSearchRequest{Prompt: "cari indomaret dekat jalan sukarno hata yogya"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.ToLower(strings.TrimSpace(result.TypeBusiness)) != "indomaret" {
+		t.Fatalf("expected type business indomaret, got %s", result.TypeBusiness)
+	}
+	if result.City != "Yogyakarta" {
+		t.Fatalf("expected city Yogyakarta, got %s", result.City)
 	}
 }
