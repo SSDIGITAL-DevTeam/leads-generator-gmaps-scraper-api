@@ -14,11 +14,13 @@ import (
 )
 
 type mockCompaniesRepository struct {
-	list          func(ctx context.Context, filter dto.ListFilter) ([]entity.Company, error)
-	bulk          func(ctx context.Context, records []repository.BulkUpsertCompanyInput) (repository.BulkUpsertResult, error)
-	upsert        func(ctx context.Context, company *entity.Company) error
-	enrich        func(ctx context.Context, enrichment *entity.CompanyEnrichment) error
-	getEnrichment func(ctx context.Context, companyID uuid.UUID) (*entity.CompanyEnrichment, error)
+	list            func(ctx context.Context, filter dto.ListFilter) ([]entity.Company, error)
+	bulk            func(ctx context.Context, records []repository.BulkUpsertCompanyInput) (repository.BulkUpsertResult, error)
+	upsert          func(ctx context.Context, company *entity.Company) error
+	enrich          func(ctx context.Context, enrichment *entity.CompanyEnrichment) error
+	getEnrichment   func(ctx context.Context, companyID uuid.UUID) (*entity.CompanyEnrichment, error)
+	upsertContacts  func(ctx context.Context, contact *entity.WebsiteEnrichedContact) error
+	getContactsByID func(ctx context.Context, companyID uuid.UUID) (*entity.WebsiteEnrichedContact, error)
 }
 
 func (m *mockCompaniesRepository) List(ctx context.Context, filter dto.ListFilter) ([]entity.Company, error) {
@@ -36,10 +38,10 @@ func (m *mockCompaniesRepository) BulkUpsertCompanies(ctx context.Context, recor
 }
 
 func (m *mockCompaniesRepository) Upsert(ctx context.Context, company *entity.Company) error {
-    if m.upsert != nil {
-        return m.upsert(ctx, company)
-    }
-    return errors.New("upsert not implemented")
+	if m.upsert != nil {
+		return m.upsert(ctx, company)
+	}
+	return errors.New("upsert not implemented")
 }
 
 func (m *mockCompaniesRepository) UpsertEnrichment(ctx context.Context, enrichment *entity.CompanyEnrichment) error {
@@ -54,6 +56,20 @@ func (m *mockCompaniesRepository) GetEnrichment(ctx context.Context, companyID u
 		return m.getEnrichment(ctx, companyID)
 	}
 	return nil, errors.New("get enrichment not implemented")
+}
+
+func (m *mockCompaniesRepository) UpsertEnrichedContacts(ctx context.Context, contact *entity.WebsiteEnrichedContact) error {
+	if m.upsertContacts != nil {
+		return m.upsertContacts(ctx, contact)
+	}
+	return errors.New("upsert enriched contacts not implemented")
+}
+
+func (m *mockCompaniesRepository) GetByCompanyID(ctx context.Context, companyID uuid.UUID) (*entity.WebsiteEnrichedContact, error) {
+	if m.getContactsByID != nil {
+		return m.getContactsByID(ctx, companyID)
+	}
+	return nil, errors.New("get website contacts not implemented")
 }
 
 func TestCompaniesService_ListCompanies_AppliesDefaults(t *testing.T) {
@@ -182,10 +198,16 @@ func TestCompaniesService_UpsertCompany(t *testing.T) {
 
 func TestCompaniesService_SaveEnrichment_Success(t *testing.T) {
 	var captured *entity.CompanyEnrichment
+	var capturedContact *entity.WebsiteEnrichedContact
 	repo := &mockCompaniesRepository{
 		enrich: func(ctx context.Context, enrichment *entity.CompanyEnrichment) error {
 			dup := *enrichment
 			captured = &dup
+			return nil
+		},
+		upsertContacts: func(ctx context.Context, contact *entity.WebsiteEnrichedContact) error {
+			copy := *contact
+			capturedContact = &copy
 			return nil
 		},
 	}
@@ -226,6 +248,12 @@ func TestCompaniesService_SaveEnrichment_Success(t *testing.T) {
 	}
 	if captured.Metadata["website"] != "https://acme.com" || captured.Metadata["pages_crawled"] != 2 {
 		t.Fatalf("expected metadata stored, got %+v", captured.Metadata)
+	}
+	if capturedContact == nil {
+		t.Fatalf("expected website enriched contact to be saved")
+	}
+	if capturedContact.LinkedInURL == nil || *capturedContact.LinkedInURL != "https://linkedin.com/company/acme" {
+		t.Fatalf("expected linkedin url persisted, got %+v", capturedContact.LinkedInURL)
 	}
 }
 

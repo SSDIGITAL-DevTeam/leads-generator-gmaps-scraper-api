@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -15,13 +16,22 @@ import (
 	"github.com/octobees/leads-generator/api/internal/entity"
 	"github.com/octobees/leads-generator/api/internal/repository"
 	"github.com/octobees/leads-generator/api/internal/service"
+	"github.com/octobees/leads-generator/api/internal/service/scoring"
 )
 
 type enrichmentRepoStub struct {
-	saved        *entity.CompanyEnrichment
-	result       *entity.CompanyEnrichment
-	err          error
-	fetchErr     error
+	saved             *entity.CompanyEnrichment
+	result            *entity.CompanyEnrichment
+	err               error
+	fetchErr          error
+	savedContact      *entity.WebsiteEnrichedContact
+	contactErr        error
+	contactFetchErr   error
+	contactFetchValue *entity.WebsiteEnrichedContact
+}
+
+func strPtr(value string) *string {
+	return &value
 }
 
 func (s *enrichmentRepoStub) List(ctx context.Context, filter dto.ListFilter) ([]entity.Company, error) {
@@ -51,6 +61,21 @@ func (s *enrichmentRepoStub) GetEnrichment(ctx context.Context, companyID uuid.U
 	return s.result, nil
 }
 
+func (s *enrichmentRepoStub) UpsertEnrichedContacts(ctx context.Context, contact *entity.WebsiteEnrichedContact) error {
+	if s.contactErr != nil {
+		return s.contactErr
+	}
+	s.savedContact = contact
+	return nil
+}
+
+func (s *enrichmentRepoStub) GetByCompanyID(ctx context.Context, companyID uuid.UUID) (*entity.WebsiteEnrichedContact, error) {
+	if s.contactFetchErr != nil {
+		return nil, s.contactFetchErr
+	}
+	return s.contactFetchValue, nil
+}
+
 func TestEnrichHandler_SaveResult_Success(t *testing.T) {
 	repo := &enrichmentRepoStub{}
 	handler := NewEnrichHandler(service.NewCompaniesService(repo))
@@ -70,6 +95,9 @@ func TestEnrichHandler_SaveResult_Success(t *testing.T) {
 	}
 	if repo.saved == nil || repo.saved.CompanyID.String() != "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" {
 		t.Fatalf("expected enrichment saved, got %+v", repo.saved)
+	}
+	if repo.savedContact == nil || repo.savedContact.CompanyID.String() != "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" {
+		t.Fatalf("expected structured contact saved, got %+v", repo.savedContact)
 	}
 }
 
@@ -144,7 +172,16 @@ func TestEnrichHandler_SaveResult_ServiceErrors(t *testing.T) {
 
 func TestEnrichHandler_GetResult_Success(t *testing.T) {
 	repo := &enrichmentRepoStub{
-		result: &entity.CompanyEnrichment{CompanyID: uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")},
+		result: &entity.CompanyEnrichment{
+			CompanyID:      uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+			Emails:         []string{"info@example.com"},
+			Phones:         []string{"+6211111111"},
+			Socials:        map[string][]string{"linkedin": {"https://linkedin.com/company/acme"}},
+			Address:        strPtr("123 Main St, Springfield, US"),
+			ContactFormURL: strPtr("https://acme.com/contact"),
+			AboutSummary:   strPtr("We build stuff"),
+			Metadata:       map[string]any{"website": "https://acme.com"},
+		},
 	}
 	handler := NewEnrichHandler(service.NewCompaniesService(repo))
 
@@ -160,6 +197,24 @@ func TestEnrichHandler_GetResult_Success(t *testing.T) {
 	}
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var resp struct {
+		Data struct {
+			Score      scoring.ScoreResult      `json:"score"`
+			Enrichment entity.CompanyEnrichment `json:"enrichment"`
+		} `json:"data"`
+		Status string `json:"status"`
+	}
+
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Data.Score.Total == 0 {
+		t.Fatalf("expected non-zero score, got %d", resp.Data.Score.Total)
+	}
+	if resp.Data.Score.Breakdown["website_quality"] != 30 {
+		t.Fatalf("expected website_quality 30, got %d", resp.Data.Score.Breakdown["website_quality"])
 	}
 }
 

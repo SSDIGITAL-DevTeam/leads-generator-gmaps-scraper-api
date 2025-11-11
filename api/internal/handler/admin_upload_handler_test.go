@@ -44,6 +44,14 @@ func (s *stubCompaniesRepository) GetEnrichment(ctx context.Context, companyID u
 	return nil, nil
 }
 
+func (s *stubCompaniesRepository) UpsertEnrichedContacts(ctx context.Context, contact *entity.WebsiteEnrichedContact) error {
+	return nil
+}
+
+func (s *stubCompaniesRepository) GetByCompanyID(ctx context.Context, companyID uuid.UUID) (*entity.WebsiteEnrichedContact, error) {
+	return nil, nil
+}
+
 func newAdminUploadHandler(repo repository.CompaniesRepository) *AdminUploadHandler {
 	service := service.NewCompaniesService(repo)
 	return NewAdminUploadHandler(service)

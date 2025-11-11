@@ -164,6 +164,10 @@ func (s *CompaniesService) SaveEnrichment(ctx context.Context, payload dto.Enric
 		Metadata:       buildEnrichmentMetadata(payload),
 	}
 
+	if err := s.repo.UpsertEnrichedContacts(ctx, buildWebsiteEnrichedContact(companyID, payload)); err != nil {
+		return err
+	}
+
 	return s.repo.UpsertEnrichment(ctx, enrichment)
 }
 
@@ -308,4 +312,37 @@ func buildEnrichmentMetadata(payload dto.EnrichResultRequest) map[string]any {
 		return nil
 	}
 	return meta
+}
+
+func buildWebsiteEnrichedContact(companyID uuid.UUID, payload dto.EnrichResultRequest) *entity.WebsiteEnrichedContact {
+	socials := normalizeSocialLinks(payload.Socials)
+	contact := &entity.WebsiteEnrichedContact{
+		CompanyID:      companyID,
+		Emails:         normalizeStringSlice(payload.Emails, strings.ToLower),
+		Phones:         normalizeStringSlice(payload.Phones, nil),
+		Address:        trimPointer(payload.Address),
+		ContactFormURL: trimPointer(payload.ContactFormURL),
+		LinkedInURL:    selectSocialLink(socials, "linkedin"),
+		FacebookURL:    selectSocialLink(socials, "facebook"),
+		InstagramURL:   selectSocialLink(socials, "instagram"),
+		YouTubeURL:     selectSocialLink(socials, "youtube"),
+		TikTokURL:      selectSocialLink(socials, "tiktok"),
+	}
+	return contact
+}
+
+func selectSocialLink(socials map[string][]string, platform string) *string {
+	if len(socials) == 0 {
+		return nil
+	}
+	links := socials[platform]
+	for _, link := range links {
+		trimmed := strings.TrimSpace(link)
+		if trimmed == "" {
+			continue
+		}
+		value := trimmed
+		return &value
+	}
+	return nil
 }

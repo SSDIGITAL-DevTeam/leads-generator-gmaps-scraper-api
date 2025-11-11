@@ -23,6 +23,8 @@ type CompaniesRepository interface {
 	BulkUpsertCompanies(ctx context.Context, records []BulkUpsertCompanyInput) (BulkUpsertResult, error)
 	UpsertEnrichment(ctx context.Context, enrichment *entity.CompanyEnrichment) error
 	GetEnrichment(ctx context.Context, companyID uuid.UUID) (*entity.CompanyEnrichment, error)
+	UpsertEnrichedContacts(ctx context.Context, contact *entity.WebsiteEnrichedContact) error
+	GetByCompanyID(ctx context.Context, companyID uuid.UUID) (*entity.WebsiteEnrichedContact, error)
 }
 
 // ErrEnrichmentNotFound indicates there is no enrichment row for the given company.
@@ -477,14 +479,14 @@ func (r *PGXCompaniesRepository) GetEnrichment(ctx context.Context, companyID uu
 	`
 
 	var (
-		record          entity.CompanyEnrichment
-		emails          []string
-		phones          []string
-		socialsJSON     []byte
-		metadataJSON    []byte
-		address         sql.NullString
-		contactForm     sql.NullString
-		aboutSummary    sql.NullString
+		record       entity.CompanyEnrichment
+		emails       []string
+		phones       []string
+		socialsJSON  []byte
+		metadataJSON []byte
+		address      sql.NullString
+		contactForm  sql.NullString
+		aboutSummary sql.NullString
 	)
 
 	err := r.pool.QueryRow(ctx, query, companyID).Scan(
@@ -525,6 +527,131 @@ func (r *PGXCompaniesRepository) GetEnrichment(ctx context.Context, companyID uu
 	record.Address = nullStringToPtr(address)
 	record.ContactFormURL = nullStringToPtr(contactForm)
 	record.AboutSummary = nullStringToPtr(aboutSummary)
+
+	return &record, nil
+}
+
+// UpsertEnrichedContacts saves normalized contact fields for a company.
+func (r *PGXCompaniesRepository) UpsertEnrichedContacts(ctx context.Context, contact *entity.WebsiteEnrichedContact) error {
+	if contact == nil {
+		return fmt.Errorf("enriched contact payload is nil")
+	}
+
+	query := `
+		INSERT INTO website_enriched_contacts (
+			company_id,
+			emails,
+			phones,
+			linkedin_url,
+			facebook_url,
+			instagram_url,
+			youtube_url,
+			tiktok_url,
+			address,
+			contact_form_url
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+		)
+		ON CONFLICT (company_id) DO UPDATE SET
+			emails = EXCLUDED.emails,
+			phones = EXCLUDED.phones,
+			linkedin_url = EXCLUDED.linkedin_url,
+			facebook_url = EXCLUDED.facebook_url,
+			instagram_url = EXCLUDED.instagram_url,
+			youtube_url = EXCLUDED.youtube_url,
+			tiktok_url = EXCLUDED.tiktok_url,
+			address = EXCLUDED.address,
+			contact_form_url = EXCLUDED.contact_form_url,
+			updated_at = NOW();
+	`
+
+	_, err := r.pool.Exec(ctx, query,
+		contact.CompanyID,
+		stringSliceOrEmpty(contact.Emails),
+		stringSliceOrEmpty(contact.Phones),
+		stringOrNil(contact.LinkedInURL),
+		stringOrNil(contact.FacebookURL),
+		stringOrNil(contact.InstagramURL),
+		stringOrNil(contact.YouTubeURL),
+		stringOrNil(contact.TikTokURL),
+		stringOrNil(contact.Address),
+		stringOrNil(contact.ContactFormURL),
+	)
+	if err != nil {
+		return fmt.Errorf("upsert website enriched contact: %w", err)
+	}
+	return nil
+}
+
+// GetByCompanyID fetches structured contact rows for a company.
+func (r *PGXCompaniesRepository) GetByCompanyID(ctx context.Context, companyID uuid.UUID) (*entity.WebsiteEnrichedContact, error) {
+	query := `
+		SELECT
+			id,
+			company_id,
+			emails,
+			phones,
+			linkedin_url,
+			facebook_url,
+			instagram_url,
+			youtube_url,
+			tiktok_url,
+			address,
+			contact_form_url,
+			created_at,
+			updated_at
+		FROM website_enriched_contacts
+		WHERE company_id = $1
+	`
+
+	var (
+		record         entity.WebsiteEnrichedContact
+		emails         []string
+		phones         []string
+		linkedinURL    sql.NullString
+		facebookURL    sql.NullString
+		instagramURL   sql.NullString
+		youtubeURL     sql.NullString
+		tiktokURL      sql.NullString
+		address        sql.NullString
+		contactFormURL sql.NullString
+	)
+
+	err := r.pool.QueryRow(ctx, query, companyID).Scan(
+		&record.ID,
+		&record.CompanyID,
+		&emails,
+		&phones,
+		&linkedinURL,
+		&facebookURL,
+		&instagramURL,
+		&youtubeURL,
+		&tiktokURL,
+		&address,
+		&contactFormURL,
+		&record.CreatedAt,
+		&record.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrEnrichmentNotFound
+		}
+		return nil, fmt.Errorf("fetch website enriched contact: %w", err)
+	}
+
+	if len(emails) > 0 {
+		record.Emails = append([]string(nil), emails...)
+	}
+	if len(phones) > 0 {
+		record.Phones = append([]string(nil), phones...)
+	}
+	record.LinkedInURL = nullStringToPtr(linkedinURL)
+	record.FacebookURL = nullStringToPtr(facebookURL)
+	record.InstagramURL = nullStringToPtr(instagramURL)
+	record.YouTubeURL = nullStringToPtr(youtubeURL)
+	record.TikTokURL = nullStringToPtr(tiktokURL)
+	record.Address = nullStringToPtr(address)
+	record.ContactFormURL = nullStringToPtr(contactFormURL)
 
 	return &record, nil
 }

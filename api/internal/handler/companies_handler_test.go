@@ -46,6 +46,14 @@ func (c *capturingCompaniesRepo) GetEnrichment(ctx context.Context, companyID uu
 	return nil, nil
 }
 
+func (c *capturingCompaniesRepo) UpsertEnrichedContacts(ctx context.Context, contact *entity.WebsiteEnrichedContact) error {
+	return nil
+}
+
+func (c *capturingCompaniesRepo) GetByCompanyID(ctx context.Context, companyID uuid.UUID) (*entity.WebsiteEnrichedContact, error) {
+	return nil, nil
+}
+
 func newCompaniesHandler(repo repository.CompaniesRepository) *CompaniesHandler {
 	return NewCompaniesHandler(service.NewCompaniesService(repo))
 }
