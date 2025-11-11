@@ -9,13 +9,41 @@ import (
 	"github.com/octobees/leads-generator/api/internal/dto"
 )
 
+type cityAlias struct {
+	match     string
+	canonical string
+}
+
 var (
 	stopwordExpr     = regexp.MustCompile(`(?i)\b(cariin|cari|tolong|minta|mohon|mau|aku|saya|butuh|yang|untuk|dong|please|find|search|looking|look|for|i|need|want|get|collect)\b`)
 	locationPattern  = regexp.MustCompile(`(?i)\b(?:di|in|at|around|near)\s+([a-zA-Z\s]+)`)
 	numberPattern    = regexp.MustCompile(`(?i)\b(\d+)\b`)
 	nowebsitePattern = regexp.MustCompile(`(?i)(belum\s+(punya|memiliki)\s+website|tanpa\s+website|without\s+(a\s+)?website|no\s+website)`)
 	intentKeywords   = regexp.MustCompile(`(?i)\b(cari|search|find|scrape|look|looking|discover)\b`)
-	knownCities      = []string{"malioboro", "jakarta", "yogyakarta", "jogja", "surabaya", "bandung", "bali", "denpasar", "semarang", "medan", "malang", "tangerang", "bekasi", "bogor", "solo", "samarinda", "balikpapan", "makassar", "palembang", "depok", "cirebon"}
+	knownCities      = []cityAlias{
+		{"malioboro", "Malioboro"},
+		{"jakarta", "Jakarta"},
+		{"yogyakarta", "Yogyakarta"},
+		{"jogja", "Yogyakarta"},
+		{"yogya", "Yogyakarta"},
+		{"surabaya", "Surabaya"},
+		{"bandung", "Bandung"},
+		{"bali", "Bali"},
+		{"denpasar", "Denpasar"},
+		{"semarang", "Semarang"},
+		{"medan", "Medan"},
+		{"malang", "Malang"},
+		{"tangerang", "Tangerang"},
+		{"bekasi", "Bekasi"},
+		{"bogor", "Bogor"},
+		{"solo", "Solo"},
+		{"samarinda", "Samarinda"},
+		{"balikpapan", "Balikpapan"},
+		{"makassar", "Makassar"},
+		{"palembang", "Palembang"},
+		{"depok", "Depok"},
+		{"cirebon", "Cirebon"},
+	}
 )
 
 // PromptService interprets free-form search prompts.
@@ -113,11 +141,11 @@ func extractCityAndType(prompt string) (string, string) {
 		}
 	}
 	if city == "" {
-		for _, candidate := range knownCities {
-			if idx := strings.Index(lower, candidate); idx >= 0 {
-				city = titleCase(candidate)
+		for _, alias := range knownCities {
+			if idx := strings.Index(lower, alias.match); idx >= 0 {
+				city = alias.canonical
 				before := strings.TrimSpace(original[:idx])
-				after := strings.TrimSpace(original[idx+len(candidate):])
+				after := strings.TrimSpace(original[idx+len(alias.match):])
 				switch {
 				case before == "":
 					prompt = after
