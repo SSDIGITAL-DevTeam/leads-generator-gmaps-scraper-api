@@ -96,7 +96,7 @@ func extractCityAndType(prompt string) (string, string) {
 	if len(match) > 0 {
 		idx := strings.Index(lower, strings.ToLower(match[0]))
 		if idx >= 0 {
-			prompt = strings.TrimSpace(prompt[:idx])
+			prompt = strings.TrimSpace(prompt[idx+len(match[0]):])
 		}
 	}
 
