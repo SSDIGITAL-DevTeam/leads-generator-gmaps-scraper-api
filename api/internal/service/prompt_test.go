@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/octobees/leads-generator/api/internal/dto"
@@ -38,8 +39,8 @@ func TestPromptService_InvalidPrompt(t *testing.T) {
 }
 
 func TestPromptService_EnglishPrompt(t *testing.T) {
-	service := NewPromptService("Indonesia")
-	result, err := service.Parse(dto.PromptSearchRequest{Prompt: "find 5 consulting companies in Jakarta without website"})
+    service := NewPromptService("Indonesia")
+    result, err := service.Parse(dto.PromptSearchRequest{Prompt: "find 5 consulting companies in Jakarta without website"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -51,5 +52,19 @@ func TestPromptService_EnglishPrompt(t *testing.T) {
 	}
 	if !result.RequireNoWebsite {
 		t.Fatalf("expected RequireNoWebsite true")
+	}
+}
+
+func TestPromptService_KnownCityFallback(t *testing.T) {
+	service := NewPromptService("Indonesia")
+	result, err := service.Parse(dto.PromptSearchRequest{Prompt: "cari toko batik dekat malioboro yogyakarta"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.City != "Malioboro" {
+		t.Fatalf("expected city Malioboro, got %s", result.City)
+	}
+	if !strings.Contains(strings.ToLower(result.TypeBusiness), "toko batik") {
+		t.Fatalf("expected type to include toko batik, got %s", result.TypeBusiness)
 	}
 }

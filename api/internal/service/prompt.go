@@ -15,6 +15,7 @@ var (
 	numberPattern    = regexp.MustCompile(`(?i)\b(\d+)\b`)
 	nowebsitePattern = regexp.MustCompile(`(?i)(belum\s+(punya|memiliki)\s+website|tanpa\s+website|without\s+(a\s+)?website|no\s+website)`)
 	intentKeywords   = regexp.MustCompile(`(?i)\b(cari|search|find|scrape|look|looking|discover)\b`)
+	knownCities      = []string{"malioboro", "jakarta", "yogyakarta", "jogja", "surabaya", "bandung", "bali", "denpasar", "semarang", "medan", "malang", "tangerang", "bekasi", "bogor", "solo", "samarinda", "balikpapan", "makassar", "palembang", "depok", "cirebon"}
 )
 
 // PromptService interprets free-form search prompts.
@@ -86,17 +87,47 @@ func (s *PromptService) Parse(req dto.PromptSearchRequest) (PromptResult, error)
 }
 
 func extractCityAndType(prompt string) (string, string) {
+	original := prompt
 	match := locationPattern.FindStringSubmatch(prompt)
 	city := ""
 	if len(match) > 1 {
 		city = titleCase(stripTrailingKeywords(match[1]))
 	}
 
-	lower := strings.ToLower(prompt)
+	lower := strings.ToLower(original)
 	if len(match) > 0 {
 		idx := strings.Index(lower, strings.ToLower(match[0]))
 		if idx >= 0 {
-			prompt = strings.TrimSpace(prompt[idx+len(match[0]):])
+			before := strings.TrimSpace(original[:idx])
+			after := strings.TrimSpace(original[idx+len(match[0]):])
+			switch {
+			case before == "":
+				prompt = after
+			case after == "":
+				prompt = before
+			default:
+				prompt = strings.TrimSpace(before + " " + after)
+			}
+			original = prompt
+			lower = strings.ToLower(original)
+		}
+	}
+	if city == "" {
+		for _, candidate := range knownCities {
+			if idx := strings.Index(lower, candidate); idx >= 0 {
+				city = titleCase(candidate)
+				before := strings.TrimSpace(original[:idx])
+				after := strings.TrimSpace(original[idx+len(candidate):])
+				switch {
+				case before == "":
+					prompt = after
+				case after == "":
+					prompt = before
+				default:
+					prompt = strings.TrimSpace(before + " " + after)
+				}
+				break
+			}
 		}
 	}
 
