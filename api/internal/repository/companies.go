@@ -282,6 +282,12 @@ func (r *PGXCompaniesRepository) List(ctx context.Context, filter dto.ListFilter
 		args = append(args, *filter.MinRating)
 		idx++
 	}
+	switch strings.ToLower(filter.WebsiteStatus) {
+	case "missing":
+		clauses = append(clauses, "website IS NULL")
+	case "available":
+		clauses = append(clauses, "website IS NOT NULL")
+	}
 	if filter.LatestRunOnly && filter.UpdatedSince == nil && filter.ScrapeRunID == nil {
 		runClauses := append([]string{}, clauses...)
 		runClauses = append(runClauses, "scrape_run_id IS NOT NULL")
@@ -353,21 +359,24 @@ func (r *PGXCompaniesRepository) List(ctx context.Context, filter dto.ListFilter
 	baseQuery.WriteString(" ORDER BY ")
 	baseQuery.WriteString(orderClause)
 
-	page := filter.Page
-	if page <= 0 {
-		page = 1
+	if filter.Limit > 0 {
+		baseQuery.WriteString(fmt.Sprintf(" LIMIT %d", filter.Limit))
+	} else {
+		page := filter.Page
+		if page <= 0 {
+			page = 1
+		}
+		perPage := filter.PerPage
+		if perPage <= 0 {
+			perPage = 20
+		}
+		if perPage > 100 {
+			perPage = 100
+		}
+		offset := (page - 1) * perPage
+		baseQuery.WriteString(fmt.Sprintf(" LIMIT $%d OFFSET $%d", idx, idx+1))
+		args = append(args, perPage, offset)
 	}
-	perPage := filter.PerPage
-	if perPage <= 0 {
-		perPage = 20
-	}
-	if perPage > 100 {
-		perPage = 100
-	}
-
-	offset := (page - 1) * perPage
-	baseQuery.WriteString(fmt.Sprintf(" LIMIT $%d OFFSET $%d", idx, idx+1))
-	args = append(args, perPage, offset)
 
 	rows, err := r.pool.Query(ctx, baseQuery.String(), args...)
 	if err != nil {

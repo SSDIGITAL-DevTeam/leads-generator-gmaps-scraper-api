@@ -60,6 +60,9 @@ func (s *CompaniesService) ListCompanies(ctx context.Context, filter dto.ListFil
 	if filter.PerPage > 100 {
 		filter.PerPage = 100
 	}
+	if filter.Limit > 0 && filter.Limit < filter.PerPage {
+		filter.PerPage = filter.Limit
+	}
 	return s.repo.List(ctx, filter)
 }
 

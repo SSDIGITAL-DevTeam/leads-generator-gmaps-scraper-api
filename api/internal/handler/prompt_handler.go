@@ -57,15 +57,33 @@ func (h *PromptSearchHandler) Enqueue(c echo.Context) error {
 	}
 
 	resp := dto.PromptSearchResponse{
-		Prompt:       req.Prompt,
-		TypeBusiness: result.TypeBusiness,
-		City:         result.City,
-		Country:      result.Country,
-		MinRating:    result.MinRating,
+		Prompt:          req.Prompt,
+		TypeBusiness:    result.TypeBusiness,
+		City:            result.City,
+		Country:         result.Country,
+		MinRating:       result.MinRating,
+		Limit:           result.Limit,
+		RequireNoWebsite: result.RequireNoWebsite,
+	}
+
+	queryParams := map[string]any{
+		"type_business": result.TypeBusiness,
+		"city":          result.City,
+		"country":      result.Country,
+	}
+	if result.MinRating > 0 {
+		queryParams["min_rating"] = result.MinRating
+	}
+	if result.Limit > 0 {
+		queryParams["limit"] = result.Limit
+	}
+	if result.RequireNoWebsite {
+		queryParams["website"] = "missing"
 	}
 
 	return Success(c, http.StatusOK, "prompt job queued", map[string]any{
-		"job":  data,
-		"query": resp,
+		"job":          data,
+		"query":        resp,
+		"query_params": queryParams,
 	})
 }

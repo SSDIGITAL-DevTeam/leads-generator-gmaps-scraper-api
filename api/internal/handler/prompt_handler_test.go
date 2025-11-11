@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -41,5 +42,16 @@ func TestPromptHandler_Success(t *testing.T) {
 	}
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var payload struct {
+		Data struct {
+			QueryParams map[string]any `json:"query_params"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if payload.Data.QueryParams["city"] != "Jakarta" {
+		t.Fatalf("expected city Jakarta in query params")
 	}
 }

@@ -42,7 +42,9 @@ func (h *CompaniesHandler) listInternal(c echo.Context, latestOnly bool) error {
 		Sort:         strings.TrimSpace(c.QueryParam("sort")),
 		Page:         parseIntDefault(c.QueryParam("page"), 1),
 		PerPage:      parseIntDefault(c.QueryParam("per_page"), 20),
+		Limit:        parseIntDefault(c.QueryParam("limit"), 0),
 	}
+	filter.WebsiteStatus = strings.TrimSpace(strings.ToLower(c.QueryParam("website")))
 
 	if minRatingStr := strings.TrimSpace(c.QueryParam("min_rating")); minRatingStr != "" {
 		if minRating, err := strconv.ParseFloat(minRatingStr, 64); err == nil {

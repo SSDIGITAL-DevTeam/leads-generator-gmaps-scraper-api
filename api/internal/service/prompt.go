@@ -3,14 +3,17 @@ package service
 import (
 	"errors"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/octobees/leads-generator/api/internal/dto"
 )
 
 var (
-	stopwordExpr    = regexp.MustCompile(`(?i)\b(cariin|cari|tolong|minta|mohon|mau|aku|saya|butuh|yang|untuk|dong|please)\b`)
-	locationPattern = regexp.MustCompile(`(?i)\b(?:di|in)\s+([a-zA-Z\s]+)`)
+	stopwordExpr     = regexp.MustCompile(`(?i)\b(cariin|cari|tolong|minta|mohon|mau|aku|saya|butuh|yang|untuk|dong|please)\b`)
+	locationPattern  = regexp.MustCompile(`(?i)\b(?:di|in)\s+([a-zA-Z\s]+)`)
+	numberPattern    = regexp.MustCompile(`(?i)\b(\d+)\b`)
+	nowebsitePattern = regexp.MustCompile(`(?i)(belum\s+(punya|memiliki)\s+website|tanpa\s+website|without\s+a\s+website)`)
 )
 
 // PromptService interprets free-form search prompts.
@@ -20,10 +23,12 @@ type PromptService struct {
 
 // PromptResult contains structured parameters derived from a prompt.
 type PromptResult struct {
-	TypeBusiness string
-	City         string
-	Country      string
-	MinRating    float64
+	TypeBusiness     string
+	City             string
+	Country          string
+	MinRating        float64
+	Limit            int
+	RequireNoWebsite bool
 }
 
 // NewPromptService creates a prompt parser with sensible defaults.
@@ -54,11 +59,19 @@ func (s *PromptService) Parse(req dto.PromptSearchRequest) (PromptResult, error)
 		typeBusiness = "business"
 	}
 
+	limit := req.Limit
+	if limit == 0 {
+		limit = extractLimit(prompt)
+	}
+	requireNoWebsite := nowebsitePattern.MatchString(prompt)
+
 	return PromptResult{
-		TypeBusiness: typeBusiness,
-		City:         city,
-		Country:      country,
-		MinRating:    max(0, req.MinRating),
+		TypeBusiness:     typeBusiness,
+		City:             city,
+		Country:          country,
+		MinRating:        max(0, req.MinRating),
+		Limit:            limit,
+		RequireNoWebsite: requireNoWebsite,
 	}, nil
 }
 
@@ -66,7 +79,7 @@ func extractCityAndType(prompt string) (string, string) {
 	match := locationPattern.FindStringSubmatch(prompt)
 	city := ""
 	if len(match) > 1 {
-		city = titleCase(match[1])
+		city = titleCase(stripTrailingKeywords(match[1]))
 	}
 
 	lower := strings.ToLower(prompt)
@@ -78,7 +91,7 @@ func extractCityAndType(prompt string) (string, string) {
 	}
 
 	typeBusiness := stopwordExpr.ReplaceAllString(prompt, "")
-	typeBusiness = strings.TrimSpace(typeBusiness)
+	typeBusiness = stripNumbers(strings.TrimSpace(typeBusiness))
 	if typeBusiness == "" && city != "" {
 		typeBusiness = "business"
 	}
@@ -106,4 +119,35 @@ func max(a, b float64) float64 {
 		return a
 	}
 	return b
+}
+
+var keywordStops = []string{" yang", " yg", " tanpa", " without", " dengan", " dan"}
+
+func stripTrailingKeywords(value string) string {
+	value = strings.TrimSpace(value)
+	lower := strings.ToLower(value)
+	cut := len(value)
+	for _, kw := range keywordStops {
+		if idx := strings.Index(lower, kw); idx >= 0 && idx < cut {
+			cut = idx
+		}
+	}
+	return strings.TrimSpace(value[:cut])
+}
+
+func extractLimit(prompt string) int {
+	match := numberPattern.FindStringSubmatch(prompt)
+	if len(match) < 2 {
+		return 0
+	}
+	val, err := strconv.Atoi(match[1])
+	if err != nil {
+		return 0
+	}
+	return val
+}
+
+func stripNumbers(value string) string {
+	cleaned := numberPattern.ReplaceAllString(value, " ")
+	return strings.TrimSpace(cleaned)
 }

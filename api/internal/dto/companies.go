@@ -19,4 +19,6 @@ type ListFilter struct {
 	LatestRunOnly bool
 	Page          int
 	PerPage       int
+	Limit         int
+	WebsiteStatus string
 }

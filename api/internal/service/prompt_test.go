@@ -8,7 +8,7 @@ import (
 
 func TestPromptService_Parse(t *testing.T) {
 	service := NewPromptService("Indonesia")
-	result, err := service.Parse(dto.PromptSearchRequest{Prompt: "cari PT di Jakarta", MinRating: 4})
+	result, err := service.Parse(dto.PromptSearchRequest{Prompt: "cari 3 PT di Jakarta yang belum memiliki website", MinRating: 4})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -20,5 +20,11 @@ func TestPromptService_Parse(t *testing.T) {
 	}
 	if result.Country != "Indonesia" {
 		t.Fatalf("expected default country, got %s", result.Country)
+	}
+	if result.Limit != 3 {
+		t.Fatalf("expected limit 3, got %d", result.Limit)
+	}
+	if !result.RequireNoWebsite {
+		t.Fatalf("expected RequireNoWebsite true")
 	}
 }
