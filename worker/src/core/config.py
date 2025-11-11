@@ -19,6 +19,7 @@ class Settings:
     max_pages: int = 3
     enrich_callback_url: str = ""
     default_phone_region: Optional[str] = None
+    enrich_use_js_renderer: bool = False
 
 
 @lru_cache(maxsize=1)
@@ -33,6 +34,7 @@ def get_settings() -> Settings:
     enrich_callback_url = os.getenv("ENRICH_CALLBACK_URL", "")
     default_phone_region_raw = os.getenv("DEFAULT_PHONE_REGION")
     default_phone_region = default_phone_region_raw.strip().upper() if default_phone_region_raw else None
+    enrich_use_js_renderer = os.getenv("ENRICH_USE_JS_RENDERER", "false").lower() in {"1", "true", "yes"}
 
     if not database_url:
         logger.warning("DATABASE_URL is not set; database operations will fail.")
@@ -48,4 +50,5 @@ def get_settings() -> Settings:
         max_pages=max_pages,
         enrich_callback_url=enrich_callback_url,
         default_phone_region=default_phone_region,
+        enrich_use_js_renderer=enrich_use_js_renderer,
     )

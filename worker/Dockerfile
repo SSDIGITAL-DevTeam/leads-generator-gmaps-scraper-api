@@ -14,7 +14,8 @@ RUN apt-get update \
 
 # cache-friendly (requirements dulu)
 COPY requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir --default-timeout=120 --retries=5 -r requirements.txt
+RUN pip install --no-cache-dir --default-timeout=120 --retries=5 -r requirements.txt \
+    && python -m playwright install --with-deps chromium
 
 # source belakangan
 COPY . .

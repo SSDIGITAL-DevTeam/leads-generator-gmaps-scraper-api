@@ -15,6 +15,12 @@ from urllib.parse import urljoin, urlparse, urlunparse
 import requests
 from bs4 import BeautifulSoup
 
+try:
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_playwright
+except ImportError:  # pragma: no cover - optional dependency
+    sync_playwright = None
+    PlaywrightTimeoutError = Exception
+
 from src.core.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -44,6 +50,41 @@ ABOUT_KEYWORDS = ("about", "tentang")
 
 EMAIL_REGEX = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
 PHONE_CANDIDATE_REGEX = re.compile(r"\+?\d[\d\s().\-]{6,}")
+
+
+class PlaywrightRenderer:
+    """Thin wrapper around Playwright to render JavaScript-heavy pages."""
+
+    def __init__(self, timeout_ms: int = 15000) -> None:
+        if sync_playwright is None:
+            raise RuntimeError("playwright is not installed")
+        self._playwright = None
+        self._browser = None
+        self._timeout_ms = timeout_ms
+
+    def _ensure_browser(self) -> None:
+        if self._playwright is None:
+            self._playwright = sync_playwright().start()
+            self._browser = self._playwright.chromium.launch(headless=True)
+
+    def render(self, url: str) -> Tuple[str, str]:
+        self._ensure_browser()
+        page = self._browser.new_page()
+        try:
+            page.goto(url, wait_until="networkidle", timeout=self._timeout_ms)
+            content = page.content()
+            final_url = page.url
+            return final_url, content
+        finally:
+            page.close()
+
+    def close(self) -> None:
+        if self._browser is not None:
+            self._browser.close()
+            self._browser = None
+        if self._playwright is not None:
+            self._playwright.stop()
+            self._playwright = None
 
 COUNTRY_CODE_MAP = {
     "US": "1",
@@ -262,6 +303,21 @@ def extract_address(soup: BeautifulSoup) -> Optional[str]:
     return None
 
 
+def _needs_js_render(soup: BeautifulSoup) -> bool:
+    body_text = soup.get_text(" ", strip=True)
+    if len(body_text) > 200:
+        return False
+
+    if soup.find(attrs={"data-page": True}):
+        return True
+
+    root = soup.find(id=re.compile("(app|root)", re.IGNORECASE))
+    if root and not root.get_text(strip=True):
+        return True
+
+    return False
+
+
 def _summarize_text(text: str, *, max_length: int = 320) -> Optional[str]:
     cleaned = re.sub(r"\s+", " ", text or "").strip()
     if not cleaned:
@@ -304,6 +360,11 @@ class SiteEnricher:
         self.session.headers.setdefault("Accept-Language", "en-US,en;q=0.9")
 
         self._robots = self._load_robot_rules(parsed)
+        self.use_js_renderer = bool(getattr(self.settings, "enrich_use_js_renderer", False))
+        self._js_renderer: Optional[PlaywrightRenderer] = None
+        if self.use_js_renderer and sync_playwright is None:
+            logger.warning("Playwright is unavailable; disabling JS renderer")
+            self.use_js_renderer = False
 
     @staticmethod
     def _load_robot_rules(parsed_url) -> Optional[robotparser.RobotFileParser]:
@@ -412,6 +473,31 @@ class SiteEnricher:
                 numbers.update(parsed_numbers)
         return numbers
 
+    def _get_js_renderer(self) -> Optional[PlaywrightRenderer]:
+        if not self.use_js_renderer:
+            return None
+        if not self._js_renderer:
+            try:
+                self._js_renderer = PlaywrightRenderer(timeout_ms=REQUEST_TIMEOUT * 1000)
+            except RuntimeError as exc:
+                logger.warning("Unable to initialise Playwright renderer: %s", exc)
+                self.use_js_renderer = False
+                return None
+        return self._js_renderer
+
+    def _fetch_with_js(self, url: str) -> Optional[Tuple[str, BeautifulSoup]]:
+        renderer = self._get_js_renderer()
+        if not renderer:
+            return None
+        try:
+            final_url, html = renderer.render(url)
+            return final_url, BeautifulSoup(html, "html.parser")
+        except PlaywrightTimeoutError:
+            logger.warning("Playwright timed out fetching %s", url)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Playwright failed for %s: %s", url, exc)
+        return None
+
     def enrich(self) -> Dict[str, Any]:
         visit_queue: List[str] = [self.root_url]
         visited: Set[str] = set()
@@ -451,9 +537,18 @@ class SiteEnricher:
             fetched = fetch_url(self.session, current_url)
             delay_needed = True
             if not fetched:
-                continue
+                if self.use_js_renderer:
+                    fetched = self._fetch_with_js(current_url)
+                if not fetched:
+                    continue
 
             final_url, soup = fetched
+
+            if self.use_js_renderer and _needs_js_render(soup):
+                js_fetched = self._fetch_with_js(final_url)
+                if js_fetched:
+                    final_url, soup = js_fetched
+
             if final_url in visited:
                 continue
 
@@ -515,6 +610,9 @@ class SiteEnricher:
 
     def close(self) -> None:
         self.session.close()
+        if self._js_renderer:
+            self._js_renderer.close()
+            self._js_renderer = None
 
     def __enter__(self) -> "SiteEnricher":
         return self
