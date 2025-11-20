@@ -92,16 +92,16 @@ func (s *PromptService) Parse(req dto.PromptSearchRequest) (PromptResult, error)
 		typeBusiness = "business"
 	}
 
-	// limit := req.Limit
-	// if limit == 0 {
-	// 	limit = extractLimit(prompt)
-	// }
-	// if limit <= 0 {
-	// 	limit = 20
-	// }
-	// if limit > 20 {
-	// 	limit = 20
-	// }
+	limit := req.Limit
+	if limit == 0 {
+		limit = extractLimit(prompt)
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 20 {
+		limit = 20
+	}
 	requireNoWebsite := nowebsitePattern.MatchString(prompt)
 
 	return PromptResult{
@@ -109,7 +109,7 @@ func (s *PromptService) Parse(req dto.PromptSearchRequest) (PromptResult, error)
 		City:             city,
 		Country:          country,
 		MinRating:        max(0, req.MinRating),
-		// Limit:            limit,
+		Limit:            limit,
 		RequireNoWebsite: requireNoWebsite,
 	}, nil
 }

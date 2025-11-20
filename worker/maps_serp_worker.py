@@ -111,7 +111,10 @@ def run_scrape(query: str, ll: Optional[str] = None) -> None:
 
     payload = to_ingest_payload(candidates)
     response = send_to_ingest_api(payload)
-    logger.info("Posted %s candidates to ingest API. status=%s", len(candidates), response.status_code)
+    if response is not None:
+        logger.info("Posted %s candidates to ingest API. status=%s", len(candidates), response.status_code)
+    else:
+        logger.warning("Failed to post %s candidates to ingest API (see errors above).", len(candidates))
 
 
 def _parse_cli_args() -> argparse.Namespace:

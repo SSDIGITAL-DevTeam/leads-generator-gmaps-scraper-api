@@ -7,6 +7,10 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 
+# Invalidate cache when source code changes (via git SHA)
+ARG GIT_SHA=dev
+LABEL git.sha="${GIT_SHA}"
+
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api

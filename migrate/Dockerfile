@@ -9,6 +9,11 @@ RUN addgroup -S migrate && adduser -S migrate -G migrate && \
     chmod +x /usr/local/bin/migrate
 
 WORKDIR /app
+
+# Invalidate cache when migrations change (via git SHA)
+ARG GIT_SHA=dev
+LABEL git.sha="${GIT_SHA}"
+
 COPY db/migrations /migrations
 
 USER migrate

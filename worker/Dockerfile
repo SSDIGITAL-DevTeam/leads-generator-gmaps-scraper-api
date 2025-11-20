@@ -17,6 +17,10 @@ COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir --default-timeout=120 --retries=5 -r requirements.txt \
     && python -m playwright install --with-deps chromium
 
+# Invalidate cache when source code changes (via git SHA)
+ARG GIT_SHA=dev
+LABEL git.sha="${GIT_SHA}"
+
 # source belakangan
 COPY . .
 

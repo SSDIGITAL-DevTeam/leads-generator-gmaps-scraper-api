@@ -54,3 +54,6 @@ package-lock.json
 
 # Compiled worker cache
 worker/.mypy_cache/
+
+# Worker runtime data
+worker/data/failed/
