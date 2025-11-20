@@ -11,7 +11,7 @@ from flask import Flask, jsonify, request
 
 from src.core.config import get_settings
 from src.core.site_enricher import SiteEnricher, post_enrich_result
-from src.jobs.run_query import run_query_job
+from maps_serp_worker import run_scrape
 
 # ---------- Logging ----------
 logging.basicConfig(
@@ -56,9 +56,9 @@ def healthcheck() -> Any:
 @app.post("/scrape")
 def enqueue_scrape() -> Any:
     """
-    Enqueue a Google Places scraping job.
+    Enqueue a SERP API scraping job.
     Required JSON fields: type_business, city, country
-    Optional: min_rating (float), max_pages (int)
+    Optional: min_rating (float), limit (int), require_no_website (bool)
     """
     payload: Dict[str, Any] = request.get_json(silent=True) or {}
 
@@ -67,7 +67,11 @@ def enqueue_scrape() -> Any:
     if missing:
         return jsonify({"error": f"missing fields: {', '.join(missing)}"}), 400
 
-    settings = get_settings()
+    # Build query string from type_business, city, country
+    type_business = str(payload["type_business"]).strip()
+    city = str(payload["city"]).strip()
+    country = str(payload["country"]).strip()
+    query = f"{type_business} in {city}, {country}"
 
     # min_rating (optional -> float)
     min_rating_raw = payload.get("min_rating")
@@ -78,22 +82,28 @@ def enqueue_scrape() -> Any:
         except (TypeError, ValueError):
             return jsonify({"error": "min_rating must be numeric"}), 400
 
-    # max_pages (optional -> int, default from settings)
-    max_pages_raw = payload.get("max_pages", settings.max_pages)
-    try:
-        max_pages = int(max_pages_raw)
-    except (TypeError, ValueError):
-        max_pages = settings.max_pages
+    # limit (optional -> int)
+    limit_raw = payload.get("limit")
+    limit = None
+    if limit_raw is not None:
+        try:
+            limit = int(limit_raw)
+            if limit <= 0:
+                return jsonify({"error": "limit must be positive"}), 400
+        except (TypeError, ValueError):
+            return jsonify({"error": "limit must be numeric"}), 400
+
+    # require_no_website (optional -> bool)
+    require_no_website = bool(payload.get("require_no_website", False))
 
     job_args = dict(
-        type_business=payload["type_business"],
-        city=payload["city"],
-        country=payload["country"],
+        query=query,
         min_rating=min_rating,
-        max_pages=max_pages,
+        limit=limit,
+        require_no_website=require_no_website,
     )
 
-    logger.info("Queueing scrape job: %s", job_args)
+    logger.info("Queueing SERP scrape job: %s", job_args)
     _executor.submit(_run_job_safe, job_args)
 
     # 202 Accepted lebih tepat untuk async enqueue
@@ -133,7 +143,7 @@ def enrich_website() -> Any:
 
 def _run_job_safe(job_args: Dict[str, Any]) -> None:
     try:
-        run_query_job(**job_args)
+        run_scrape(**job_args)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Scrape job failed: %s", exc)
 

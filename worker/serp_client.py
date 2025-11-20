@@ -9,8 +9,8 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from serpapi import GoogleSearch
 
-from .config import get_settings
-from .models import CompanyCandidate
+from config import get_settings
+from models import CompanyCandidate
 
 logger = logging.getLogger(__name__)
 

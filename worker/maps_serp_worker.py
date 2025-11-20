@@ -9,9 +9,9 @@ from typing import Dict, List, Optional
 
 import requests
 
-from .config import ConfigError, get_settings
-from .models import CompanyCandidate
-from .serp_client import fetch_from_serpapi, parse_serpapi_maps
+from config import ConfigError, get_settings
+from models import CompanyCandidate
+from serp_client import fetch_from_serpapi, parse_serpapi_maps
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -93,12 +93,25 @@ def send_to_ingest_api(payload: Dict[str, object]):
     return response
 
 
-def run_scrape(query: str, ll: Optional[str] = None) -> None:
+def run_scrape(
+    query: str, 
+    ll: Optional[str] = None,
+    min_rating: Optional[float] = None,
+    limit: Optional[int] = None,
+    require_no_website: bool = False,
+) -> None:
     """Full pipeline: fetch from SerpAPI, normalize candidates, and send to the ingest API.
 
     Callers should dedupe or cache identical queries upstream to avoid burning through SerpAPI
     credits and to stay within SerpAPI's rate limits. We still log query-level stats here so
     schedulers can aggregate usage.
+    
+    Args:
+        query: Search query string (e.g., "restaurant in Yogyakarta")
+        ll: Optional SerpAPI ll parameter for location (@lat,lng,zoom)
+        min_rating: Optional minimum rating filter (e.g., 4.5)
+        limit: Optional maximum number of results to return
+        require_no_website: If True, filter out candidates with websites
     """
     logger.info("Starting Stage 1 scrape for query=%s ll=%s", query, ll)
     raw_data = fetch_from_serpapi(query, ll)
@@ -107,6 +120,27 @@ def run_scrape(query: str, ll: Optional[str] = None) -> None:
 
     if not candidates:
         logger.warning("No candidates found for query=%s. Skipping ingest.", query)
+        return
+
+    # Apply filters
+    original_count = len(candidates)
+    
+    if min_rating is not None:
+        candidates = [c for c in candidates if c.rating and c.rating >= min_rating]
+        logger.info("Filtered by min_rating=%.1f: %d -> %d candidates", min_rating, original_count, len(candidates))
+        original_count = len(candidates)
+    
+    if require_no_website:
+        candidates = [c for c in candidates if not c.website]
+        logger.info("Filtered by require_no_website: %d -> %d candidates", original_count, len(candidates))
+        original_count = len(candidates)
+    
+    if limit is not None and limit > 0:
+        candidates = candidates[:limit]
+        logger.info("Limited to %d candidates: %d -> %d", limit, original_count, len(candidates))
+    
+    if not candidates:
+        logger.warning("No candidates remaining after filters for query=%s. Skipping ingest.", query)
         return
 
     payload = to_ingest_payload(candidates)
