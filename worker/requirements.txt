@@ -1,5 +1,6 @@
 # Core dependencies for the worker runtime.
 requests
+serpapi
 python-dotenv
 psycopg2-binary
 flask
